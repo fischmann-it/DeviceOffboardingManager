@@ -113,7 +113,7 @@ function Get-AutopilotNotIntuneDevices {
                 SerialNumber = $_.serialNumber
                 OperatingSystem = "$($_.model) ($($_.manufacturer))"
                 PrimaryUser = "Not enrolled"
-                AutopilotLastContact = ConvertTo-SafeDateTime -dateString $_.lastContactDateTime
+                AutopilotLastContact = ConvertTo-SafeDateTime -dateString $_.lastContactedDateTime
             }
         }
 

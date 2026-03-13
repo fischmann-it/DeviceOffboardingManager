@@ -2749,12 +2749,16 @@ $script:requiredPermissions = @(
         Reason     = "Required to read and modify managed device information and compliance policies"
     },
     @{
-        Permission = "Device.Read.All"
-        Reason     = "Needed to read device information from Entra ID"
+        Permission = "Device.ReadWrite.All"
+        Reason     = "Needed to read and delete device objects from Entra ID"
     },
     @{
         Permission = "DeviceManagementServiceConfig.ReadWrite.All"
         Reason     = "Required for Autopilot configuration and management"
+    },
+    @{
+        Permission = "BitlockerKey.Read.All"
+        Reason     = "Required to read BitLocker recovery keys for device offboarding"
     }
 )
 
@@ -3096,6 +3100,7 @@ LAPTOP-XYZ789
     
     # Cancel button handler
     $cancelButton.Add_Click({
+            $script:parsedDevices = @()
             $bulkImportWindow.DialogResult = $false
             $bulkImportWindow.Close()
         })
@@ -4039,7 +4044,7 @@ $OffboardButton.Add_Click({
                             
                             if ($keyIdResponse.Count -gt 0) {
                                 # Get the actual key using the key ID from the first recovery key
-                                $recoveryKeyId = $keyIdResponse.id
+                                $recoveryKeyId = $keyIdResponse[0].id
                                 $uri = "https://graph.microsoft.com/beta/informationProtection/bitlocker/recoveryKeys/$($recoveryKeyId)?`$select=key"
                                 $recoveryKeyData = Invoke-MgGraphRequest -Uri $uri -Method GET
                                 
@@ -4472,18 +4477,16 @@ $ExportSearchResultsButton.Add_Click({
             $exportData = @()
             foreach ($device in $results) {
                 $exportData += [PSCustomObject]@{
-                    DeviceName      = $device.DeviceName
-                    SerialNumber    = $device.SerialNumber
-                    LastContact     = $device.LastContact
-                    OperatingSystem = $device.OperatingSystem
-                    OSVersion       = $device.OSVersion
-                    PrimaryUser     = $device.PrimaryUser
-                    IntuneStatus    = $device.IntuneStatus
-                    AutopilotStatus = $device.AutopilotStatus
-                    EntraIDStatus   = $device.EntraIDStatus
+                    DeviceName           = $device.DeviceName
+                    SerialNumber         = $device.SerialNumber
+                    OperatingSystem      = $device.OperatingSystem
+                    PrimaryUser          = $device.PrimaryUser
+                    AzureADLastContact   = $device.AzureADLastContact
+                    IntuneLastContact    = $device.IntuneLastContact
+                    AutopilotLastContact = $device.AutopilotLastContact
                 }
             }
-            
+
             Export-DeviceListToCSV -DeviceList $exportData -DefaultFileName $fileName
         }
         else {
@@ -4508,18 +4511,16 @@ $ExportSelectedButton.Add_Click({
             $exportData = @()
             foreach ($device in $selectedDevices) {
                 $exportData += [PSCustomObject]@{
-                    DeviceName      = $device.DeviceName
-                    SerialNumber    = $device.SerialNumber
-                    LastContact     = $device.LastContact
-                    OperatingSystem = $device.OperatingSystem
-                    OSVersion       = $device.OSVersion
-                    PrimaryUser     = $device.PrimaryUser
-                    IntuneStatus    = $device.IntuneStatus
-                    AutopilotStatus = $device.AutopilotStatus
-                    EntraIDStatus   = $device.EntraIDStatus
+                    DeviceName           = $device.DeviceName
+                    SerialNumber         = $device.SerialNumber
+                    OperatingSystem      = $device.OperatingSystem
+                    PrimaryUser          = $device.PrimaryUser
+                    AzureADLastContact   = $device.AzureADLastContact
+                    IntuneLastContact    = $device.IntuneLastContact
+                    AutopilotLastContact = $device.AutopilotLastContact
                 }
             }
-            
+
             Export-DeviceListToCSV -DeviceList $exportData -DefaultFileName $fileName
         }
         else {
@@ -4689,51 +4690,60 @@ function Show-OffboardingSummary {
     foreach ($result in $Results) {
         $deviceSuccess = 0
         $deviceTotal = 0
-        
+
+        # Pre-compute skip flags and count successes outside PSCustomObject to avoid $deviceSuccess++ polluting the pipeline
+        $entraIDSkipped = $script:serviceCheckboxes -and $script:serviceCheckboxes["Entra ID"] -and -not $script:serviceCheckboxes["Entra ID"].IsChecked
+        $intuneSkipped = $script:serviceCheckboxes -and $script:serviceCheckboxes["Intune"] -and -not $script:serviceCheckboxes["Intune"].IsChecked
+        $autopilotSkipped = $script:serviceCheckboxes -and $script:serviceCheckboxes["Autopilot"] -and -not $script:serviceCheckboxes["Autopilot"].IsChecked
+
+        if (-not $entraIDSkipped -and $result.EntraID.Found -and $result.EntraID.Success) { $deviceSuccess++ }
+        if (-not $intuneSkipped -and $result.Intune.Found -and $result.Intune.Success) { $deviceSuccess++ }
+        if (-not $autopilotSkipped -and $result.Autopilot.Found -and $result.Autopilot.Success) { $deviceSuccess++ }
+
         # Create display object for this device
         $displayResult = [PSCustomObject]@{
             DeviceName               = $result.DeviceName
             SerialNumber             = if ($result.SerialNumber) { $result.SerialNumber } else { "N/A" }
-            
+
             # Entra ID
-            EntraIDStatus            = if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Entra ID"] -and -not $script:serviceCheckboxes["Entra ID"].IsChecked) {
+            EntraIDStatus            = if ($entraIDSkipped) {
                 "Skipped"
             }
             elseif ($result.EntraID.Found) {
-                if ($result.EntraID.Success) { "✓ Removed"; $deviceSuccess++ } else { "✗ Failed" }
+                if ($result.EntraID.Success) { "✓ Removed" } else { "✗ Failed" }
             }
             else { "Not Found" }
-            EntraIDColor             = if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Entra ID"] -and -not $script:serviceCheckboxes["Entra ID"].IsChecked) {
+            EntraIDColor             = if ($entraIDSkipped) {
                 "#A0AEC0"
             }
             elseif (!$result.EntraID.Found) { "#718096" } elseif ($result.EntraID.Success) { "#48BB78" } else { "#F56565" }
             EntraIDError             = $result.EntraID.Error
             EntraIDErrorVisibility   = if ($result.EntraID.Error) { "Visible" } else { "Collapsed" }
-            
+
             # Intune
-            IntuneStatus             = if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Intune"] -and -not $script:serviceCheckboxes["Intune"].IsChecked) {
+            IntuneStatus             = if ($intuneSkipped) {
                 "Skipped"
             }
             elseif ($result.Intune.Found) {
-                if ($result.Intune.Success) { "✓ Removed"; $deviceSuccess++ } else { "✗ Failed" }
+                if ($result.Intune.Success) { "✓ Removed" } else { "✗ Failed" }
             }
             else { "Not Found" }
-            IntuneColor              = if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Intune"] -and -not $script:serviceCheckboxes["Intune"].IsChecked) {
+            IntuneColor              = if ($intuneSkipped) {
                 "#A0AEC0"
             }
             elseif (!$result.Intune.Found) { "#718096" } elseif ($result.Intune.Success) { "#48BB78" } else { "#F56565" }
             IntuneError              = $result.Intune.Error
             IntuneErrorVisibility    = if ($result.Intune.Error) { "Visible" } else { "Collapsed" }
-            
+
             # Autopilot
-            AutopilotStatus          = if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Autopilot"] -and -not $script:serviceCheckboxes["Autopilot"].IsChecked) {
+            AutopilotStatus          = if ($autopilotSkipped) {
                 "Skipped"
             }
             elseif ($result.Autopilot.Found) {
-                if ($result.Autopilot.Success) { "✓ Removed"; $deviceSuccess++ } else { "✗ Failed" }
+                if ($result.Autopilot.Success) { "✓ Removed" } else { "✗ Failed" }
             }
             else { "Not Found" }
-            AutopilotColor           = if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Autopilot"] -and -not $script:serviceCheckboxes["Autopilot"].IsChecked) {
+            AutopilotColor           = if ($autopilotSkipped) {
                 "#A0AEC0"
             }
             elseif (!$result.Autopilot.Found) { "#718096" } elseif ($result.Autopilot.Success) { "#48BB78" } else { "#F56565" }
@@ -5646,24 +5656,24 @@ foreach ($button in $PlaybookButtons) {
         
             switch ($playbookName) {
                 "Autopilot Devices Not in Intune" {
-                    $playbookUrl = "https://raw.githubusercontent.com/ugurkocde/DeviceOffboardingManager/refs/heads/main/Playbooks/Playbook_1.ps1"
-                    Invoke-Playbook -PlaybookName $playbookName -PlaybookUrl $playbookUrl -Description $playbookDescription
+                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_1.ps1"
+                    Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "Intune Devices Not in Autopilot" {
-                    $playbookUrl = "https://raw.githubusercontent.com/ugurkocde/DeviceOffboardingManager/refs/heads/main/Playbooks/Playbook_2.ps1"
-                    Invoke-Playbook -PlaybookName $playbookName -PlaybookUrl $playbookUrl -Description $playbookDescription
+                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_2.ps1"
+                    Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "Corporate Device Inventory" {
-                    $playbookUrl = "https://raw.githubusercontent.com/ugurkocde/DeviceOffboardingManager/refs/heads/main/Playbooks/Playbook_3.ps1"
-                    Invoke-Playbook -PlaybookName $playbookName -PlaybookUrl $playbookUrl -Description $playbookDescription
+                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_3.ps1"
+                    Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "Personal Device Inventory" {
-                    $playbookUrl = "https://raw.githubusercontent.com/ugurkocde/DeviceOffboardingManager/refs/heads/main/Playbooks/Playbook_4.ps1"
-                    Invoke-Playbook -PlaybookName $playbookName -PlaybookUrl $playbookUrl -Description $playbookDescription
+                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_4.ps1"
+                    Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "Stale Device Report" {
-                    $playbookUrl = "https://raw.githubusercontent.com/ugurkocde/DeviceOffboardingManager/refs/heads/main/Playbooks/Playbook_5.ps1"
-                    Invoke-Playbook -PlaybookName $playbookName -PlaybookUrl $playbookUrl -Description $playbookDescription
+                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_5.ps1"
+                    Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 default {
                     [System.Windows.MessageBox]::Show(
@@ -5871,39 +5881,38 @@ function Show-PlaybookProgressModal {
 function Invoke-Playbook {
     param(
         [string]$PlaybookName,
-        [string]$PlaybookUrl,
+        [string]$PlaybookPath,
         [string]$Description
     )
-    
+
     try {
         Write-Log "Starting execution of playbook: $PlaybookName"
-        
+
         # Show progress modal
         $progressWindow = Show-PlaybookProgressModal -PlaybookName $PlaybookName -Description $Description
         $status = $progressWindow.FindName('StatusMessage')
         $errorSection = $progressWindow.FindName('ErrorSection')
         $errorMessage = $progressWindow.FindName('ErrorMessage')
         $closeButton = $progressWindow.FindName('CloseButton')
-        
+
         # Show the progress window and bring it to front
         $progressWindow.Show()
         $progressWindow.Activate()
-        
-        # Download playbook
-        $status.Text = "Downloading playbook script..."
-        Write-Log "Downloading playbook from: $PlaybookUrl"
-        
-        $playbookPath = ".\Playbook_1.ps1"
-        
+
+        # Verify playbook exists locally
+        $status.Text = "Loading playbook script..."
+        Write-Log "Loading playbook from: $PlaybookPath"
+
         try {
-            Invoke-WebRequest -Uri $PlaybookUrl -OutFile $playbookPath -ErrorAction Stop
-            Write-Log "Playbook downloaded successfully to: $playbookPath"
-            
+            if (-not (Test-Path $PlaybookPath)) {
+                throw "Playbook file not found: $PlaybookPath"
+            }
+
             # Execute playbook
             $status.Text = "Executing playbook..."
-            Write-Log "Executing playbook: $playbookPath"
-            
-            $rawResults = & $playbookPath
+            Write-Log "Executing playbook: $PlaybookPath"
+
+            $rawResults = & $PlaybookPath
             
             # Filter out only the actual device objects
             $results = $rawResults | Where-Object {
@@ -5916,55 +5925,42 @@ function Invoke-Playbook {
             $status.Text = "Processing results..."
             
             if ($results) {
-                # Create device objects
-                $deviceObjects = $results | ForEach-Object {
-                    [PSCustomObject]@{
-                        DeviceName           = $_.DeviceName
-                        SerialNumber         = $_.SerialNumber
-                        OperatingSystem      = $_.OperatingSystem
-                        PrimaryUser          = $_.PrimaryUser
-                        AutopilotLastContact = $_.AutopilotLastContact
-                    }
-                }
-                
-                # Update the DataGrid with results
+                # Update the DataGrid with results -- pass playbook output directly
                 $PlaybookResultsDataGrid.Dispatcher.Invoke([Action] {
-                    
+
                         # Clear existing results
                         $PlaybookResultsDataGrid.ItemsSource = $null
-                    
-                        # Add each device to the collection
+
+                        # Add each result to the collection
                         $collection = New-Object System.Collections.ObjectModel.ObservableCollection[object]
-                        foreach ($device in $deviceObjects) {
+                        foreach ($device in $results) {
                             $collection.Add($device)
                         }
-                        # Configure DataGrid columns for playbook results
+
+                        # Build columns dynamically from the first result's properties
                         $PlaybookResultsDataGrid.Columns.Clear()
-                        $PlaybookResultsDataGrid.Columns.Add((New-Object System.Windows.Controls.DataGridTextColumn -Property @{
-                                    Header  = "Device Name"
-                                    Binding = New-Object System.Windows.Data.Binding("DeviceName")
-                                    Width   = "Auto"
-                                }))
-                        $PlaybookResultsDataGrid.Columns.Add((New-Object System.Windows.Controls.DataGridTextColumn -Property @{
-                                    Header  = "Serial Number"
-                                    Binding = New-Object System.Windows.Data.Binding("SerialNumber")
-                                    Width   = "Auto"
-                                }))
-                        $PlaybookResultsDataGrid.Columns.Add((New-Object System.Windows.Controls.DataGridTextColumn -Property @{
-                                    Header  = "Operating System"
-                                    Binding = New-Object System.Windows.Data.Binding("OperatingSystem")
-                                    Width   = "Auto"
-                                }))
-                        $PlaybookResultsDataGrid.Columns.Add((New-Object System.Windows.Controls.DataGridTextColumn -Property @{
-                                    Header  = "Primary User"
-                                    Binding = New-Object System.Windows.Data.Binding("PrimaryUser")
-                                    Width   = "Auto"
-                                }))
-                        $PlaybookResultsDataGrid.Columns.Add((New-Object System.Windows.Controls.DataGridTextColumn -Property @{
-                                    Header  = "Last Contact"
-                                    Binding = New-Object System.Windows.Data.Binding("AutopilotLastContact")
-                                    Width   = "Auto"
-                                }))
+                        $columnHeaders = @{
+                            DeviceName           = "Device Name"
+                            SerialNumber         = "Serial Number"
+                            OperatingSystem      = "Operating System"
+                            PrimaryUser          = "Primary User"
+                            AzureADLastContact   = "Entra ID Last Contact"
+                            IntuneLastContact    = "Intune Last Contact"
+                            AutopilotLastContact = "Autopilot Last Contact"
+                            ComplianceState      = "Compliance State"
+                            EnrollmentDate       = "Enrollment Date"
+                            LastSyncDateTime     = "Last Sync"
+                            Ownership            = "Ownership"
+                        }
+                        $firstResult = $results | Select-Object -First 1
+                        foreach ($prop in $firstResult.PSObject.Properties) {
+                            $header = if ($columnHeaders.ContainsKey($prop.Name)) { $columnHeaders[$prop.Name] } else { $prop.Name }
+                            $PlaybookResultsDataGrid.Columns.Add((New-Object System.Windows.Controls.DataGridTextColumn -Property @{
+                                        Header  = $header
+                                        Binding = New-Object System.Windows.Data.Binding($prop.Name)
+                                        Width   = "Auto"
+                                    }))
+                        }
 
                         # Set the ItemsSource
                         $PlaybookResultsDataGrid.ItemsSource = $collection
