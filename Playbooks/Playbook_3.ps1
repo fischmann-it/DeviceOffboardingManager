@@ -86,7 +86,7 @@ function Get-CorporateDevices {
     try {
         # Get all corporate devices from Intune
         Write-Host "Fetching corporate devices from Intune..." -ForegroundColor Cyan
-        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'company'"
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'company'&`$select=deviceName,serialNumber,operatingSystem,model,managedDeviceOwnerType,lastSyncDateTime"
         $corporateDevices = Get-GraphPagedResults -Uri $uri
         Write-Host "Found $($corporateDevices.Count) corporate devices" -ForegroundColor Green
 

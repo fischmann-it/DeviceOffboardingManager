@@ -86,7 +86,7 @@ function Get-PersonalDevices {
     try {
         # Get all personal devices from Intune
         Write-Host "Fetching personal devices from Intune..." -ForegroundColor Cyan
-        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'personal'"
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'personal'&`$select=deviceName,serialNumber,operatingSystem,model,managedDeviceOwnerType,lastSyncDateTime"
         $personalDevices = Get-GraphPagedResults -Uri $uri
         Write-Host "Found $($personalDevices.Count) personal devices" -ForegroundColor Green
 

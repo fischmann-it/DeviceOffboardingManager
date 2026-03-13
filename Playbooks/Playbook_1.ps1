@@ -86,13 +86,13 @@ function Get-AutopilotNotIntuneDevices {
     try {
         # Get all Autopilot devices
         Write-Host "Fetching Autopilot devices..." -ForegroundColor Cyan
-        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities"
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime,model,manufacturer"
         $autopilotDevices = Get-GraphPagedResults -Uri $uri
         Write-Host "Found $($autopilotDevices.Count) Autopilot devices" -ForegroundColor Green
 
         # Get all Intune devices
         Write-Host "Fetching Intune devices..." -ForegroundColor Cyan
-        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices"
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=serialNumber"
         $intuneDevices = Get-GraphPagedResults -Uri $uri
         Write-Host "Found $($intuneDevices.Count) Intune devices" -ForegroundColor Green
 

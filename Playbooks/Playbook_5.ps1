@@ -98,7 +98,7 @@ function Get-StaleDevices {
         
         # Get all stale devices from Intune
         Write-Host "Fetching devices not synced since $staleDateString..." -ForegroundColor Cyan
-        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $staleDateString"
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $staleDateString&`$select=deviceName,serialNumber,operatingSystem,model,managedDeviceOwnerType,lastSyncDateTime"
         $staleDevices = Get-GraphPagedResults -Uri $uri
         Write-Host "Found $($staleDevices.Count) stale devices" -ForegroundColor Green
 

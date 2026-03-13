@@ -185,6 +185,13 @@ if (-not ([System.Management.Automation.PSTypeName]'DeviceObject').Type) {
         public DateTime? IntuneLastContact { get; set; }
         public DateTime? AutopilotLastContact { get; set; }
 
+        // Graph IDs captured at search time for safe ID-based offboarding
+        public string EntraDeviceId { get; set; }         // Entra object id for DELETE /devices/{id}
+        public string EntraDeviceObjectId { get; set; }    // deviceId property (for BitLocker lookup)
+        public string IntuneDeviceId { get; set; }         // Intune managed device id
+        public string AutopilotIdentityId { get; set; }    // Autopilot identity id
+        public string EntraAccountEnabled { get; set; }    // "True"/"False"/null for disable feature
+
         public event PropertyChangedEventHandler PropertyChanged;
 
         protected void OnPropertyChanged(string name)
@@ -199,15 +206,16 @@ if (-not ([System.Management.Automation.PSTypeName]'DeviceObject').Type) {
 function Get-GraphPagedResults {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Uri
+        [string]$Uri,
+        [hashtable]$Headers = @{}
     )
-    
+
     $results = @()
     $nextLink = $Uri
-    
+
     do {
         try {
-            $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
+            $response = Invoke-GraphRequestWithRetry -Uri $nextLink -Method GET -Headers $Headers
             if ($response.value) {
                 $results += $response.value
             }
@@ -218,8 +226,123 @@ function Get-GraphPagedResults {
             break
         }
     } while ($nextLink)
-    
+
     return $results
+}
+
+# Retry wrapper for Graph API calls -- handles HTTP 429 (throttling) and transient 5xx errors
+function Invoke-GraphRequestWithRetry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+        [string]$Method = "GET",
+        [string]$Body,
+        [string]$ContentType = "application/json",
+        [hashtable]$Headers = @{},
+        [int]$MaxRetries = 3,
+        [int]$BaseDelaySeconds = 2
+    )
+
+    $attempt = 0
+    while ($true) {
+        try {
+            $params = @{
+                Uri    = $Uri
+                Method = $Method
+            }
+            if ($Headers.Count -gt 0) { $params.Headers = $Headers }
+            if ($Body) {
+                $params.Body = $Body
+                $params.ContentType = $ContentType
+            }
+            return Invoke-MgGraphRequest @params
+        }
+        catch {
+            $attempt++
+            $statusCode = $null
+            if ($_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            }
+
+            # Throttled (429)
+            if ($statusCode -eq 429) {
+                if ($attempt -gt $MaxRetries) { throw }
+                $retryAfter = $BaseDelaySeconds
+                if ($_.Exception.Response.Headers -and $_.Exception.Response.Headers['Retry-After']) {
+                    $retryAfter = [int]$_.Exception.Response.Headers['Retry-After']
+                }
+                Write-Log "Throttled (429) on $Method $Uri -- retrying in ${retryAfter}s (attempt $attempt/$MaxRetries)" -Severity "WARN"
+                Start-Sleep -Seconds $retryAfter
+                continue
+            }
+
+            # Transient server errors (500-599) or network-level failures (null status)
+            if ($null -eq $statusCode -or ($statusCode -ge 500 -and $statusCode -lt 600)) {
+                if ($attempt -gt $MaxRetries) { throw }
+                $delay = $BaseDelaySeconds * [Math]::Pow(2, $attempt - 1)
+                Write-Log "Server error ($statusCode) on $Method $Uri -- retrying in ${delay}s (attempt $attempt/$MaxRetries)" -Severity "WARN"
+                Start-Sleep -Seconds $delay
+                continue
+            }
+
+            # Non-retryable error
+            throw
+        }
+    }
+}
+
+# Batch helper -- sends up to 20 sub-requests per POST /$batch, auto-chunks larger sets
+function Invoke-GraphBatchRequest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$Requests
+    )
+
+    $allResponses = @()
+    $chunkSize = 20
+
+    for ($i = 0; $i -lt $Requests.Count; $i += $chunkSize) {
+        $end = [Math]::Min($i + $chunkSize, $Requests.Count) - 1
+        $chunk = $Requests[$i..$end]
+
+        $batchBody = @{ requests = $chunk } | ConvertTo-Json -Depth 10
+        $batchResponse = Invoke-GraphRequestWithRetry -Uri "https://graph.microsoft.com/beta/`$batch" -Method POST -Body $batchBody -ContentType "application/json"
+
+        if ($batchResponse.responses) {
+            # Retry individual sub-requests that returned 429 or 5xx
+            $retryable = $batchResponse.responses | Where-Object { $_.status -eq 429 -or ($_.status -ge 500 -and $_.status -lt 600) }
+            $successful = $batchResponse.responses | Where-Object { $_.status -lt 429 -or ($_.status -gt 429 -and $_.status -lt 500) -or $_.status -ge 600 }
+            $allResponses += $successful
+
+            $retryAttempt = 0
+            while ($retryable -and $retryAttempt -lt 3) {
+                $retryAttempt++
+                $delay = 2 * [Math]::Pow(2, $retryAttempt - 1)
+                Write-Log "Batch: retrying $($retryable.Count) sub-requests (attempt $retryAttempt/3)" -Severity "WARN"
+                Start-Sleep -Seconds $delay
+
+                $retryRequests = foreach ($resp in $retryable) {
+                    $chunk | Where-Object { $_.id -eq $resp.id }
+                }
+                $retryBody = @{ requests = @($retryRequests) } | ConvertTo-Json -Depth 10
+                $retryResponse = Invoke-GraphRequestWithRetry -Uri "https://graph.microsoft.com/beta/`$batch" -Method POST -Body $retryBody -ContentType "application/json"
+
+                if ($retryResponse.responses) {
+                    $retryable = $retryResponse.responses | Where-Object { $_.status -eq 429 -or ($_.status -ge 500 -and $_.status -lt 600) }
+                    $newSuccessful = $retryResponse.responses | Where-Object { $_.status -lt 429 -or ($_.status -gt 429 -and $_.status -lt 500) -or $_.status -ge 600 }
+                    $allResponses += $newSuccessful
+                } else {
+                    break
+                }
+            }
+            # If still retryable after max attempts, add them as-is
+            if ($retryable) {
+                $allResponses += $retryable
+            }
+        }
+    }
+
+    return $allResponses
 }
 
 # Helper function to safely convert date strings to DateTime objects
@@ -3200,14 +3323,22 @@ function Connect-ToGraph {
             throw "Failed to get Microsoft Graph context after connection"
         }
 
+        # Capture admin identity for audit logging
+        if ($context.Account) {
+            $script:AdminUPN = $context.Account
+        } else {
+            $script:AdminUPN = "AppId:$($context.ClientId)"
+        }
+        Write-Log "Authenticated as $($script:AdminUPN)" -Severity "AUDIT"
+
         # Get tenant details and update UI
         try {
             Write-Log "Retrieving tenant information..."
-            $tenantInfo = Invoke-MgGraphRequest -Uri "https://graph.microsoft.com/v1.0/organization" -Method GET
+            $tenantInfo = Invoke-GraphRequestWithRetry -Uri "https://graph.microsoft.com/beta/organization?`$select=displayName,id,verifiedDomains" -Method GET
             if ($tenantInfo.value) {
                 $org = $tenantInfo.value[0]
                 Write-Log "Found tenant: $($org.displayName)"
-                
+
                 # Update UI elements
                 $Window.FindName('TenantDisplayName').Text = $org.displayName
                 $Window.FindName('TenantId').Text = $org.id
@@ -3287,16 +3418,23 @@ catch {
 $scriptVersion = Get-ScriptVersion
 $Window.Title = "Device Offboarding Manager (Preview) - $scriptVersion"
 
-$script:LogFilePath = [System.IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "IntuneOffboardingTool_Log.txt")
+$script:LogDirectory = [System.IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "DOM_Logs")
+if (-not (Test-Path $script:LogDirectory)) { New-Item -Path $script:LogDirectory -ItemType Directory -Force | Out-Null }
+$script:LogFilePath = [System.IO.Path]::Combine($script:LogDirectory, "DOM_$(Get-Date -Format 'yyyyMMdd_HHmmss').log")
+$script:AdminUPN = $null
 
 function Write-Log {
     param(
         [Parameter(Mandatory = $true)]
-        [string] $Message
+        [string] $Message,
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("INFO", "WARN", "ERROR", "AUDIT")]
+        [string] $Severity = "INFO"
     )
 
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $logMessage = "$timestamp - $Message"
+    $admin = if ($script:AdminUPN) { $script:AdminUPN } else { "N/A" }
+    $logMessage = "$timestamp | $Severity | $admin | $Message"
 
     Add-Content -Path $script:LogFilePath -Value $logMessage
 }
@@ -3363,39 +3501,48 @@ function Invoke-DeviceSearch {
         $IntuneCount = 0
         $AutopilotCount = 0
 
+        # Pre-fetch Autopilot devices once for devicename search (API doesn't support displayName filtering)
+        $allAutopilotDevices = $null
+        if ($SearchOption -eq "Devicename") {
+            try {
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime"
+                $allAutopilotDevices = Get-GraphPagedResults -Uri $uri
+                Write-Log "Pre-fetched $($allAutopilotDevices.Count) Autopilot devices for display name matching"
+            }
+            catch {
+                Write-Log "Error pre-fetching Autopilot devices: $_"
+                $allAutopilotDevices = @()
+            }
+        }
+
         foreach ($SearchText in $SearchTexts) {
             # Trim whitespace and newlines
             $SearchText = $SearchText.Trim()
-            
+
             if ([string]::IsNullOrWhiteSpace($SearchText)) {
                 continue
             }
-            
+
             if ($SearchOption -eq "Devicename") {
-                # Get devices from all services independently
-                $uri = "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$SearchText'"
-                $AADDevices = Get-GraphPagedResults -Uri $uri
-                
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=deviceName eq '$SearchText'"
-                $IntuneDevices = Get-GraphPagedResults -Uri $uri
-                
-                # Search Autopilot devices by displayName (using client-side filtering)
-                try {
-                    # Get all Autopilot devices and filter client-side since API doesn't support displayName filtering
-                    $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities"
-                    $allAutopilotDevices = Get-GraphPagedResults -Uri $uri
-                    
-                    # Filter by display name (case-insensitive partial match)
-                    $AutopilotDevices = $allAutopilotDevices | Where-Object { 
-                        $_.displayName -and $_.displayName -like "*$SearchText*" 
+                # Batch Entra + Intune queries together
+                $batchRequests = @(
+                    @{ id = "entra"; method = "GET"; url = "/devices?`$filter=displayName eq '$SearchText'&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds" }
+                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=deviceName eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId" }
+                )
+                $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
+                $entraResp = $batchResponses | Where-Object { $_.id -eq "entra" }
+                $intuneResp = $batchResponses | Where-Object { $_.id -eq "intune" }
+                $AADDevices = if ($entraResp -and $entraResp.status -eq 200 -and $entraResp.body.value) { $entraResp.body.value } else { @() }
+                $IntuneDevices = if ($intuneResp -and $intuneResp.status -eq 200 -and $intuneResp.body.value) { $intuneResp.body.value } else { @() }
+
+                # Filter pre-fetched Autopilot devices by display name (exact match)
+                $AutopilotDevices = @()
+                if ($allAutopilotDevices) {
+                    $AutopilotDevices = $allAutopilotDevices | Where-Object {
+                        $_.displayName -and $_.displayName -eq $SearchText
                     }
-                    
-                    Write-Log "Found $($AutopilotDevices.Count) Autopilot devices matching display name: $SearchText"
                 }
-                catch {
-                    Write-Log "Error searching Autopilot devices by display name: $_"
-                    $AutopilotDevices = @()
-                }
+                Write-Log "Found $(@($AutopilotDevices).Count) Autopilot devices matching display name: $SearchText"
 
                 # Process Entra ID devices
                 if ($AADDevices) {
@@ -3405,7 +3552,7 @@ function Invoke-DeviceSearch {
                         
                         # If no Autopilot match by displayName and we have Intune device with serial, try serial number
                         if (-not $matchingAutopilotDevice -and $matchingIntuneDevice -and $matchingIntuneDevice.serialNumber) {
-                            $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($matchingIntuneDevice.serialNumber)')"
+                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($matchingIntuneDevice.serialNumber)')&`$select=id,displayName,serialNumber,lastContactedDateTime"
                             $matchingAutopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                         }
 
@@ -3430,7 +3577,12 @@ function Invoke-DeviceSearch {
                         $CombinedDevice.AzureADLastContact = ConvertTo-SafeDateTime -dateString $AADDevice.approximateLastSignInDateTime
                         $CombinedDevice.IntuneLastContact = ConvertTo-SafeDateTime -dateString $matchingIntuneDevice.lastSyncDateTime
                         $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $matchingAutopilotDevice.lastContactedDateTime
-                        
+                        $CombinedDevice.EntraDeviceId = $AADDevice.id
+                        $CombinedDevice.EntraDeviceObjectId = $AADDevice.deviceId
+                        $CombinedDevice.IntuneDeviceId = $matchingIntuneDevice?.id
+                        $CombinedDevice.AutopilotIdentityId = $matchingAutopilotDevice?.id
+                        $CombinedDevice.EntraAccountEnabled = if ($null -ne $AADDevice.accountEnabled) { $AADDevice.accountEnabled.ToString() } else { $null }
+
                         $searchResults.Add($CombinedDevice)
                         $AADCount++
                         if ($matchingIntuneDevice) { $IntuneCount++ }
@@ -3451,7 +3603,7 @@ function Invoke-DeviceSearch {
                         
                         # If no match by displayName and we have serial number, try serial number
                         if (-not $matchingAutopilotDevice -and $IntuneDevice.serialNumber) {
-                            $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($IntuneDevice.serialNumber)')"
+                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($IntuneDevice.serialNumber)')&`$select=id,displayName,serialNumber,lastContactedDateTime"
                             $matchingAutopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                         }
 
@@ -3463,7 +3615,9 @@ function Invoke-DeviceSearch {
                         $CombinedDevice.PrimaryUser = $IntuneDevice.userDisplayName
                         $CombinedDevice.IntuneLastContact = ConvertTo-SafeDateTime -dateString $IntuneDevice.lastSyncDateTime
                         $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $matchingAutopilotDevice.lastContactedDateTime
-                        
+                        $CombinedDevice.IntuneDeviceId = $IntuneDevice.id
+                        $CombinedDevice.AutopilotIdentityId = $matchingAutopilotDevice?.id
+
                         $searchResults.Add($CombinedDevice)
                         $IntuneCount++
                         if ($matchingAutopilotDevice) { $AutopilotCount++ }
@@ -3486,26 +3640,31 @@ function Invoke-DeviceSearch {
                         $CombinedDevice.DeviceName = $AutopilotDevice.displayName
                         $CombinedDevice.SerialNumber = $AutopilotDevice.serialNumber
                         $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $AutopilotDevice.lastContactedDateTime
-                        
+                        $CombinedDevice.AutopilotIdentityId = $AutopilotDevice.id
+
                         $searchResults.Add($CombinedDevice)
                         $AutopilotCount++
                     }
                 }
             }
             elseif ($SearchOption -eq "Serialnumber") {
-                # Get devices from all services independently
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=serialNumber eq '$SearchText'"
-                $IntuneDevices = Get-GraphPagedResults -Uri $uri
-                
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$SearchText')"
-                $AutopilotDevices = Get-GraphPagedResults -Uri $uri
+                # Batch Intune + Autopilot queries together
+                $batchRequests = @(
+                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=serialNumber eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId" }
+                    @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$SearchText')&`$select=id,displayName,serialNumber,lastContactedDateTime" }
+                )
+                $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
+                $intuneResp = $batchResponses | Where-Object { $_.id -eq "intune" }
+                $autopilotResp = $batchResponses | Where-Object { $_.id -eq "autopilot" }
+                $IntuneDevices = if ($intuneResp -and $intuneResp.status -eq 200 -and $intuneResp.body.value) { $intuneResp.body.value } else { @() }
+                $AutopilotDevices = if ($autopilotResp -and $autopilotResp.status -eq 200 -and $autopilotResp.body.value) { $autopilotResp.body.value } else { @() }
 
                 if ($IntuneDevices -or $AutopilotDevices) {
                     # If device is in Intune
                     if ($IntuneDevices) {
                         foreach ($IntuneDevice in $IntuneDevices) {
                             # Get Entra ID Device
-                            $uri = "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$($IntuneDevice.deviceName)'"
+                            $uri = "https://graph.microsoft.com/beta/devices?`$filter=displayName eq '$($IntuneDevice.deviceName)'&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds"
                             $AADDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                             
                             # Get Autopilot Device
@@ -3520,7 +3679,12 @@ function Invoke-DeviceSearch {
                             $CombinedDevice.AzureADLastContact = ConvertTo-SafeDateTime -dateString $AADDevice.approximateLastSignInDateTime
                             $CombinedDevice.IntuneLastContact = ConvertTo-SafeDateTime -dateString $IntuneDevice.lastSyncDateTime
                             $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $matchingAutopilotDevice.lastContactedDateTime
-                            
+                            $CombinedDevice.EntraDeviceId = $AADDevice?.id
+                            $CombinedDevice.EntraDeviceObjectId = $AADDevice?.deviceId
+                            $CombinedDevice.IntuneDeviceId = $IntuneDevice.id
+                            $CombinedDevice.AutopilotIdentityId = $matchingAutopilotDevice?.id
+                            $CombinedDevice.EntraAccountEnabled = if ($null -ne $AADDevice -and $null -ne $AADDevice.accountEnabled) { $AADDevice.accountEnabled.ToString() } else { $null }
+
                             $searchResults.Add($CombinedDevice)
                             if ($AADDevice) { $AADCount++ }
                             $IntuneCount++
@@ -3541,11 +3705,72 @@ function Invoke-DeviceSearch {
                             $CombinedDevice.DeviceName = $AutopilotDevice.displayName
                             $CombinedDevice.SerialNumber = $AutopilotDevice.serialNumber
                             $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $AutopilotDevice.lastContactedDateTime
-                            
+                            $CombinedDevice.AutopilotIdentityId = $AutopilotDevice.id
+
                             $searchResults.Add($CombinedDevice)
                             $AutopilotCount++
                         }
                     }
+                }
+            }
+            elseif ($SearchOption -eq "Device ID") {
+                # Direct lookup by Entra device object ID
+                try {
+                    $uri = "https://graph.microsoft.com/beta/devices/$SearchText"
+                    $AADDevice = Invoke-MgGraphRequest -Uri $uri -Method GET
+                }
+                catch {
+                    Write-Log "Device ID '$SearchText' not found in Entra ID: $_"
+                    $AADDevice = $null
+                }
+
+                if ($AADDevice) {
+                    $AADCount++
+                    # Cross-reference Intune by azureADDeviceId for accurate matching
+                    $IntuneDevice = $null
+                    if ($AADDevice.deviceId) {
+                        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=azureADDeviceId eq '$($AADDevice.deviceId)'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId"
+                        $IntuneDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
+                        if ($IntuneDevice) { $IntuneCount++ }
+                    }
+
+                    # Cross-reference Autopilot by serial from physicalIds
+                    $AutopilotDevice = $null
+                    $serialFromPhysicalIds = $null
+                    if ($AADDevice.physicalIds) {
+                        foreach ($physicalId in $AADDevice.physicalIds) {
+                            if ($physicalId -match '\[SerialNumber\]:(.+)') {
+                                $serialFromPhysicalIds = $matches[1].Trim()
+                                break
+                            }
+                        }
+                    }
+                    $serial = $IntuneDevice?.serialNumber ?? $serialFromPhysicalIds
+                    if ($serial) {
+                        $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$serial')"
+                        $AutopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
+                        if ($AutopilotDevice) { $AutopilotCount++ }
+                    }
+
+                    $CombinedDevice = New-Object DeviceObject
+                    $CombinedDevice.IsSelected = $false
+                    $CombinedDevice.DeviceName = $AADDevice.displayName
+                    $CombinedDevice.SerialNumber = $serial
+                    $CombinedDevice.OperatingSystem = $AADDevice.operatingSystem
+                    $CombinedDevice.PrimaryUser = $IntuneDevice?.userDisplayName
+                    $CombinedDevice.AzureADLastContact = ConvertTo-SafeDateTime -dateString $AADDevice.approximateLastSignInDateTime
+                    $CombinedDevice.IntuneLastContact = ConvertTo-SafeDateTime -dateString $IntuneDevice?.lastSyncDateTime
+                    $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $AutopilotDevice?.lastContactedDateTime
+                    $CombinedDevice.EntraDeviceId = $AADDevice.id
+                    $CombinedDevice.EntraDeviceObjectId = $AADDevice.deviceId
+                    $CombinedDevice.IntuneDeviceId = $IntuneDevice?.id
+                    $CombinedDevice.AutopilotIdentityId = $AutopilotDevice?.id
+                    $CombinedDevice.EntraAccountEnabled = if ($null -ne $AADDevice.accountEnabled) { $AADDevice.accountEnabled.ToString() } else { $null }
+
+                    $searchResults.Add($CombinedDevice)
+                }
+                else {
+                    Write-Log "No device found with ID: $SearchText"
                 }
             }
         }
@@ -3605,6 +3830,7 @@ $SearchInputText.Add_LostFocus({
 $Window.Add_Loaded({
         $Dropdown.Items.Add("Devicename")
         $Dropdown.Items.Add("Serialnumber")
+        $Dropdown.Items.Add("Device ID")
         $Dropdown.SelectedIndex = 0
     })
 
@@ -3631,6 +3857,12 @@ $Window.Add_Loaded({
             }
             else {
                 Write-Log "Successfully connected to MS Graph"
+                # Capture admin identity for audit logging on existing connection
+                if ($context.Account) {
+                    $script:AdminUPN = $context.Account
+                } else {
+                    $script:AdminUPN = "AppId:$($context.ClientId)"
+                }
                 $AuthenticateButton.Content = "Successfully connected"
                 $AuthenticateButton.IsEnabled = $false
                 $Disconnect.IsEnabled = $true
@@ -3644,7 +3876,7 @@ $Window.Add_Loaded({
                 # Get tenant details for existing connection
                 try {
                     Write-Log "Retrieving tenant information for existing connection..."
-                    $tenantInfo = Invoke-MgGraphRequest -Uri "https://graph.microsoft.com/v1.0/organization" -Method GET
+                    $tenantInfo = Invoke-GraphRequestWithRetry -Uri "https://graph.microsoft.com/beta/organization?`$select=displayName,id,verifiedDomains" -Method GET
                     if ($tenantInfo.value) {
                         $org = $tenantInfo.value[0]
                         Write-Log "Found tenant: $($org.displayName)"
@@ -3919,15 +4151,58 @@ $OffboardButton.Add_Click({
         }
 
         $selectedDevices = $SearchResultsDataGrid.ItemsSource | Where-Object { $_.IsSelected }
-        
+
         if (-not $selectedDevices) {
             [System.Windows.MessageBox]::Show("Please select at least one device to offboard.")
             return
         }
 
+        # Resolve missing IDs for selected devices before showing confirmation
+        foreach ($device in $selectedDevices) {
+            try {
+                # If we have a device name but no Entra ID, try to resolve it
+                if ($device.DeviceName -and -not $device.EntraDeviceId) {
+                    $uri = "https://graph.microsoft.com/beta/devices?`$filter=displayName eq '$($device.DeviceName)'"
+                    $entraDevices = Get-GraphPagedResults -Uri $uri
+                    if ($entraDevices -and @($entraDevices).Count -eq 1) {
+                        $entraDevice = $entraDevices | Select-Object -First 1
+                        $device.EntraDeviceId = $entraDevice.id
+                        $device.EntraDeviceObjectId = $entraDevice.deviceId
+                        $device.EntraAccountEnabled = if ($null -ne $entraDevice.accountEnabled) { $entraDevice.accountEnabled.ToString() } else { $null }
+                    }
+                    elseif ($entraDevices -and @($entraDevices).Count -gt 1) {
+                        Write-Log "Multiple Entra ID devices found for name '$($device.DeviceName)' - skipping auto-resolution to prevent wrong-device match" -Severity "WARN"
+                    }
+                }
+                # If we have a device name but no Intune ID, try to resolve it
+                if ($device.DeviceName -and -not $device.IntuneDeviceId) {
+                    $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=deviceName eq '$($device.DeviceName)'"
+                    $intuneDevices = Get-GraphPagedResults -Uri $uri
+                    if ($intuneDevices -and @($intuneDevices).Count -eq 1) {
+                        $device.IntuneDeviceId = ($intuneDevices | Select-Object -First 1).id
+                    }
+                    elseif ($intuneDevices -and @($intuneDevices).Count -gt 1) {
+                        Write-Log "Multiple Intune devices found for name '$($device.DeviceName)' - skipping auto-resolution to prevent wrong-device match" -Severity "WARN"
+                    }
+                }
+                # If we have a serial number but no Autopilot ID, try to resolve it
+                if ($device.SerialNumber -and -not $device.AutopilotIdentityId) {
+                    $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($device.SerialNumber)')"
+                    $autopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
+                    if ($autopilotDevice) {
+                        $device.AutopilotIdentityId = $autopilotDevice.id
+                    }
+                }
+                Write-Log "Resolved IDs for $($device.DeviceName): Entra=$($device.EntraDeviceId), Intune=$($device.IntuneDeviceId), Autopilot=$($device.AutopilotIdentityId)"
+            }
+            catch {
+                Write-Log "Error resolving IDs for device $($device.DeviceName): $_" -Severity "WARN"
+            }
+        }
+
         # Show confirmation modal
         [xml]$confirmationModalXaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Confirm Device Offboarding" Height="600" Width="700" WindowStartupLocation="CenterScreen" Background="#F8F9FA">
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Confirm Device Offboarding" Height="750" Width="700" WindowStartupLocation="CenterScreen" Background="#F8F9FA">
     <Border Background="White" CornerRadius="8" Margin="16">
         <DockPanel Margin="24">
             <!-- Header -->
@@ -3954,6 +4229,48 @@ $OffboardButton.Add_Click({
             <StackPanel>
                 <!-- Services List -->
                 <WrapPanel x:Name="ServicesList" Margin="0,0,0,24" Orientation="Horizontal"/>
+
+                <!-- Device Identity Preview -->
+                <Border Background="#F0FFF4" BorderBrush="#C6F6D5" BorderThickness="1" CornerRadius="6" Padding="16" Margin="0,0,0,16" MaxHeight="200">
+                    <Grid VerticalAlignment="Stretch">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Device Identity Preview" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" VerticalAlignment="Stretch">
+                            <ItemsControl x:Name="DevicePreviewList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,8">
+                                            <StackPanel>
+                                                <TextBlock FontWeight="SemiBold" Margin="0,0,0,4">
+                                                    <Run Text="{Binding DeviceName, Mode=OneWay}"/>
+                                                    <Run Text=" | " Foreground="#A0AEC0"/>
+                                                    <Run Text="{Binding SerialText, Mode=OneWay}" Foreground="#718096"/>
+                                                </TextBlock>
+                                                <WrapPanel>
+                                                    <TextBlock Margin="0,0,16,0" FontSize="11">
+                                                        <Run Text="Entra: " FontWeight="Medium"/>
+                                                        <Run Text="{Binding EntraIdText, Mode=OneWay}" Foreground="{Binding EntraIdColor, Mode=OneWay}"/>
+                                                    </TextBlock>
+                                                    <TextBlock Margin="0,0,16,0" FontSize="11">
+                                                        <Run Text="Intune: " FontWeight="Medium"/>
+                                                        <Run Text="{Binding IntuneIdText, Mode=OneWay}" Foreground="{Binding IntuneIdColor, Mode=OneWay}"/>
+                                                    </TextBlock>
+                                                    <TextBlock FontSize="11">
+                                                        <Run Text="Autopilot: " FontWeight="Medium"/>
+                                                        <Run Text="{Binding AutopilotIdText, Mode=OneWay}" Foreground="{Binding AutopilotIdColor, Mode=OneWay}"/>
+                                                    </TextBlock>
+                                                </WrapPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
 
                 <!-- Encryption Key Section -->
                 <Border Background="#EDF2F7" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="16" Margin="0,0,0,16" Height="300">
@@ -4017,40 +4334,63 @@ $OffboardButton.Add_Click({
         $cancelButton = $confirmationWindow.FindName('CancelButton')
         $confirmButton = $confirmationWindow.FindName('ConfirmButton')
         $encryptionKeysList = $confirmationWindow.FindName('EncryptionKeysList')
+        $devicePreviewList = $confirmationWindow.FindName('DevicePreviewList')
+
+        # Populate Device Identity Preview
+        $previewItems = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
+        foreach ($device in $selectedDevices) {
+            $resolvedColor = "#48BB78"
+            $notFoundColor = "#F56565"
+            $previewItems.Add([PSCustomObject]@{
+                DeviceName     = if ($device.DeviceName) { $device.DeviceName } else { "Unknown" }
+                SerialText     = if ($device.SerialNumber) { "S/N: $($device.SerialNumber)" } else { "S/N: N/A" }
+                EntraIdText    = if ($device.EntraDeviceId) { $device.EntraDeviceId.Substring(0, [Math]::Min(8, $device.EntraDeviceId.Length)) + "..." } else { "Not found" }
+                EntraIdColor   = if ($device.EntraDeviceId) { $resolvedColor } else { $notFoundColor }
+                IntuneIdText   = if ($device.IntuneDeviceId) { $device.IntuneDeviceId.Substring(0, [Math]::Min(8, $device.IntuneDeviceId.Length)) + "..." } else { "Not found" }
+                IntuneIdColor  = if ($device.IntuneDeviceId) { $resolvedColor } else { $notFoundColor }
+                AutopilotIdText  = if ($device.AutopilotIdentityId) { $device.AutopilotIdentityId.Substring(0, [Math]::Min(8, $device.AutopilotIdentityId.Length)) + "..." } else { "Not found" }
+                AutopilotIdColor = if ($device.AutopilotIdentityId) { $resolvedColor } else { $notFoundColor }
+            })
+        }
+        $devicePreviewList.ItemsSource = $previewItems
 
         # Create a list to store encryption key information
         $encryptionKeys = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
 
-        # Get encryption keys for all selected devices
+        # Get encryption keys for all selected devices using cached IDs
         foreach ($selectedDevice in $selectedDevices) {
             try {
-                # Get device details from Intune
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=deviceName eq '$($selectedDevice.DeviceName)'"
-                $intuneDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
-
                 $keyInfo = @{
                     DeviceName = $selectedDevice.DeviceName
                     KeyText    = "Loading encryption key..."
                     Key        = $null
                 }
 
+                # Use cached Intune ID to get device details if needed
+                $intuneDevice = $null
+                if ($selectedDevice.IntuneDeviceId) {
+                    $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices/$($selectedDevice.IntuneDeviceId)?`$select=operatingSystem,azureADDeviceId,serialNumber"
+                    try { $intuneDevice = Invoke-GraphRequestWithRetry -Uri $uri -Method GET } catch { $intuneDevice = $null }
+                }
+
                 if ($intuneDevice) {
                     # Check OS type and get appropriate encryption key
                     if ($intuneDevice.operatingSystem -eq "Windows") {
                         try {
-                            # First get the key ID using Azure AD device ID
-                            $uri = "https://graph.microsoft.com/beta/informationProtection/bitlocker/recoveryKeys?`$filter=deviceId eq '$($intuneDevice.azureADDeviceId)'"
+                            # Use cached EntraDeviceObjectId for BitLocker lookup
+                            $bitlockerDeviceId = $selectedDevice.EntraDeviceObjectId ?? $intuneDevice.azureADDeviceId
+                            $uri = "https://graph.microsoft.com/beta/informationProtection/bitlocker/recoveryKeys?`$filter=deviceId eq '$bitlockerDeviceId'"
                             $keyIdResponse = Get-GraphPagedResults -Uri $uri
-                            
+
                             if ($keyIdResponse.Count -gt 0) {
-                                # Get the actual key using the key ID from the first recovery key
                                 $recoveryKeyId = $keyIdResponse[0].id
                                 $uri = "https://graph.microsoft.com/beta/informationProtection/bitlocker/recoveryKeys/$($recoveryKeyId)?`$select=key"
                                 $recoveryKeyData = Invoke-MgGraphRequest -Uri $uri -Method GET
-                                
+
                                 if ($recoveryKeyData.key) {
                                     $keyInfo.KeyText = "BitLocker Recovery Key: $($recoveryKeyData.key)"
                                     $keyInfo.Key = $recoveryKeyData.key
+                                    Write-Log "SENSITIVE: BitLocker recovery key retrieved for device $($selectedDevice.DeviceName)" -Severity "AUDIT"
                                 }
                                 else {
                                     $keyInfo.KeyText = "Error retrieving BitLocker key details."
@@ -4061,7 +4401,7 @@ $OffboardButton.Add_Click({
                             }
                         }
                         catch {
-                            Write-Log "Error retrieving BitLocker key: $_"
+                            Write-Log "Error retrieving BitLocker key: $_" -Severity "ERROR"
                             if ($_.Exception.Response.StatusCode -eq 'Forbidden') {
                                 $keyInfo.KeyText = "BitLocker key access denied. Ensure BitlockerKey.Read.All permission is granted."
                             }
@@ -4071,20 +4411,21 @@ $OffboardButton.Add_Click({
                         }
                     }
                     elseif ($intuneDevice.operatingSystem -eq "macOS") {
-                        # Get FileVault key using the dedicated endpoint for macOS
-                        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices('$($intuneDevice.id)')/getFileVaultKey"
+                        # Get FileVault key using cached Intune ID
+                        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices('$($selectedDevice.IntuneDeviceId)')/getFileVaultKey"
                         try {
                             $fileVaultKey = Invoke-MgGraphRequest -Uri $uri -Method GET
                             if ($fileVaultKey.value) {
                                 $keyInfo.KeyText = "FileVault Recovery Key: $($fileVaultKey.value)"
                                 $keyInfo.Key = $fileVaultKey.value
+                                Write-Log "SENSITIVE: FileVault recovery key retrieved for device $($selectedDevice.DeviceName)" -Severity "AUDIT"
                             }
                             else {
                                 $keyInfo.KeyText = "No FileVault recovery key found for this device."
                             }
                         }
                         catch {
-                            #Write-Log "Error retrieving FileVault key: $_"
+                            Write-Log "Error retrieving FileVault key: $_" -Severity "ERROR"
                             $keyInfo.KeyText = "Error retrieving FileVault key details."
                         }
                     }
@@ -4097,7 +4438,7 @@ $OffboardButton.Add_Click({
                 }
             }
             catch {
-                #Write-Log "Error retrieving encryption key: $_"
+                Write-Log "Error retrieving encryption key for $($selectedDevice.DeviceName): $_" -Severity "ERROR"
                 $keyInfo.KeyText = "Error retrieving encryption key. Please check logs for details."
             }
 
@@ -4134,9 +4475,10 @@ $OffboardButton.Add_Click({
         
         # Add services to the list with checkboxes
         $services = @(
-            @{ Name = "Entra ID"; Icon = "M12,5.5A3.5,3.5 0 0,1 15.5,9A3.5,3.5 0 0,1 12,12.5A3.5,3.5 0 0,1 8.5,9A3.5,3.5 0 0,1 12,5.5M5,8C5.56,8 6.08,8.15 6.53,8.42C6.38,9.85 6.8,11.27 7.66,12.38C7.16,13.34 6.16,14 5,14A3,3 0 0,1 2,11A3,3 0 0,1 5,8M19,8A3,3 0 0,1 22,11A3,3 0 0,1 19,14C17.84,14 16.84,13.34 16.34,12.38C17.2,11.27 17.62,9.85 17.47,8.42C17.92,8.15 18.44,8 19,8M5.5,18.25C5.5,16.18 8.41,14.5 12,14.5C15.59,14.5 18.5,16.18 18.5,18.25V20H5.5V18.25M0,20V18.5C0,17.11 1.89,15.94 4.45,15.6C3.86,16.28 3.5,17.22 3.5,18.25V20H0M24,20H20.5V18.25C20.5,17.22 20.14,16.28 19.55,15.6C22.11,15.94 24,17.11 24,18.5V20Z" },
-            @{ Name = "Intune"; Icon = "M21,14V4H3V14H21M21,2A2,2 0 0,1 23,4V16A2,2 0 0,1 21,18H14L16,21V22H8V21L10,18H3C1.89,18 1,17.1 1,16V4C1,2.89 1.89,2 3,2H21M4,5H20V13H4V5Z" },
-            @{ Name = "Autopilot"; Icon = "M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z" }
+            @{ Name = "Entra ID"; Icon = "M12,5.5A3.5,3.5 0 0,1 15.5,9A3.5,3.5 0 0,1 12,12.5A3.5,3.5 0 0,1 8.5,9A3.5,3.5 0 0,1 12,5.5M5,8C5.56,8 6.08,8.15 6.53,8.42C6.38,9.85 6.8,11.27 7.66,12.38C7.16,13.34 6.16,14 5,14A3,3 0 0,1 2,11A3,3 0 0,1 5,8M19,8A3,3 0 0,1 22,11A3,3 0 0,1 19,14C17.84,14 16.84,13.34 16.34,12.38C17.2,11.27 17.62,9.85 17.47,8.42C17.92,8.15 18.44,8 19,8M5.5,18.25C5.5,16.18 8.41,14.5 12,14.5C15.59,14.5 18.5,16.18 18.5,18.25V20H5.5V18.25M0,20V18.5C0,17.11 1.89,15.94 4.45,15.6C3.86,16.28 3.5,17.22 3.5,18.25V20H0M24,20H20.5V18.25C20.5,17.22 20.14,16.28 19.55,15.6C22.11,15.94 24,17.11 24,18.5V20Z"; DefaultChecked = $true },
+            @{ Name = "Disable in Entra ID"; Icon = "M12,5.5A3.5,3.5 0 0,1 15.5,9A3.5,3.5 0 0,1 12,12.5A3.5,3.5 0 0,1 8.5,9A3.5,3.5 0 0,1 12,5.5M5,8C5.56,8 6.08,8.15 6.53,8.42C6.38,9.85 6.8,11.27 7.66,12.38C7.16,13.34 6.16,14 5,14A3,3 0 0,1 2,11A3,3 0 0,1 5,8M19,8A3,3 0 0,1 22,11A3,3 0 0,1 19,14C17.84,14 16.84,13.34 16.34,12.38C17.2,11.27 17.62,9.85 17.47,8.42C17.92,8.15 18.44,8 19,8M5.5,18.25C5.5,16.18 8.41,14.5 12,14.5C15.59,14.5 18.5,16.18 18.5,18.25V20H5.5V18.25M0,20V18.5C0,17.11 1.89,15.94 4.45,15.6C3.86,16.28 3.5,17.22 3.5,18.25V20H0M24,20H20.5V18.25C20.5,17.22 20.14,16.28 19.55,15.6C22.11,15.94 24,17.11 24,18.5V20Z"; DefaultChecked = $false },
+            @{ Name = "Intune"; Icon = "M21,14V4H3V14H21M21,2A2,2 0 0,1 23,4V16A2,2 0 0,1 21,18H14L16,21V22H8V21L10,18H3C1.89,18 1,17.1 1,16V4C1,2.89 1.89,2 3,2H21M4,5H20V13H4V5Z"; DefaultChecked = $true },
+            @{ Name = "Autopilot"; Icon = "M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"; DefaultChecked = $true }
         )
         
         # Create hashtable to store checkbox references
@@ -4157,7 +4499,7 @@ $OffboardButton.Add_Click({
         
             # Checkbox
             $checkbox = New-Object System.Windows.Controls.CheckBox
-            $checkbox.IsChecked = $true
+            $checkbox.IsChecked = $service.DefaultChecked
             $checkbox.VerticalAlignment = "Center"
             $checkbox.Margin = New-Object System.Windows.Thickness(0, 0, 12, 0)
             $script:serviceCheckboxes[$service.Name] = $checkbox
@@ -4185,7 +4527,15 @@ $OffboardButton.Add_Click({
             $serviceItem.Child = $stackPanel
             $servicesList.Children.Add($serviceItem)
         }
-        
+
+        # Mutual exclusivity: "Entra ID" (delete) vs "Disable in Entra ID"
+        $script:serviceCheckboxes["Entra ID"].Add_Checked({
+            $script:serviceCheckboxes["Disable in Entra ID"].IsChecked = $false
+        }.GetNewClosure())
+        $script:serviceCheckboxes["Disable in Entra ID"].Add_Checked({
+            $script:serviceCheckboxes["Entra ID"].IsChecked = $false
+        }.GetNewClosure())
+
         # Add button handlers
         $cancelButton.Add_Click({
                 $confirmationWindow.DialogResult = $false
@@ -4240,202 +4590,193 @@ $OffboardButton.Add_Click({
 
         # Create results collection to track all operations
         $offboardingResults = @()
-        
+        $bulkAutopilotIds = @()
+
         try {
+            # Determine which services are selected
+            $disableEntra = $script:serviceCheckboxes.ContainsKey("Disable in Entra ID") -and $script:serviceCheckboxes["Disable in Entra ID"].IsChecked
+            $deleteEntra = (-not $disableEntra) -and $script:serviceCheckboxes["Entra ID"].IsChecked
+            $deleteIntune = $script:serviceCheckboxes["Intune"].IsChecked
+            $deleteAutopilot = $script:serviceCheckboxes["Autopilot"].IsChecked
+
+            # Collect serial numbers and Autopilot IDs for potential bulk deletion (2+ devices)
+            $bulkAutopilotSerials = @()
+            if ($deleteAutopilot) {
+                $bulkAutopilotIds = @($selectedDevices | Where-Object { $_.AutopilotIdentityId } | ForEach-Object { $_.AutopilotIdentityId })
+                $bulkAutopilotSerials = @($selectedDevices | Where-Object { $_.AutopilotIdentityId -and $_.SerialNumber } | ForEach-Object { $_.SerialNumber })
+            }
+            $useBulkAutopilot = $bulkAutopilotSerials.Count -ge 2
+
             foreach ($device in $selectedDevices) {
                 $deviceName = $device.DeviceName
                 $serialNumber = $device.SerialNumber
                 $deviceResult = @{
                     DeviceName   = $deviceName
                     SerialNumber = $serialNumber
-                    EntraID      = @{ Found = $false; Success = $false; Error = $null }
+                    EntraID      = @{ Found = $false; Success = $false; Error = $null; Action = $null }
                     Intune       = @{ Found = $false; Success = $false; Error = $null }
                     Autopilot    = @{ Found = $false; Success = $false; Error = $null }
                 }
 
-                Write-Log "Starting offboarding for device: $deviceName (Serial: $serialNumber)"
+                Write-Log "Starting offboarding for device: $deviceName (Serial: $serialNumber, EntraId: $($device.EntraDeviceId), IntuneId: $($device.IntuneDeviceId), AutopilotId: $($device.AutopilotIdentityId))" -Severity "AUDIT"
 
-                # Get Entra ID Device(s) - Handle potential duplicates
-                if ($script:serviceCheckboxes["Entra ID"].IsChecked -and $deviceName) {
-                    $uri = "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$deviceName'"
-                    $AADDevices = (Invoke-MgGraphRequest -Uri $uri -Method GET).value
-                    
-                    if ($AADDevices -and $AADDevices.Count -gt 0) {
+                # Build batch requests for this device
+                $batchRequests = @()
+
+                if ($disableEntra) {
+                    if ($device.EntraDeviceId) {
                         $deviceResult.EntraID.Found = $true
-                        
-                        # Log if we found duplicates
-                        if ($AADDevices.Count -gt 1) {
-                            Write-Log "Found $($AADDevices.Count) devices with name '$deviceName' in Entra ID. Will process all duplicates."
-                        }
-                        
-                        $deletedCount = 0
-                        $failedCount = 0
-                        $allErrors = @()
-                        
-                        foreach ($AADDevice in $AADDevices) {
-                            # Try to extract serial number from physicalIds if we don't have it (only from first device)
-                            if (-not $serialNumber -and $AADDevice.physicalIds -and $deletedCount -eq 0) {
-                                foreach ($physicalId in $AADDevice.physicalIds) {
-                                    if ($physicalId -match '\[SerialNumber\]:(.+)') {
-                                        $serialNumber = $matches[1].Trim()
-                                        Write-Log "Retrieved serial number from Entra ID device: $serialNumber"
-                                        break
-                                    }
-                                }
-                            }
-                            
-                            # Check if this device matches our serial number (if we have one)
-                            $deviceSerial = $null
-                            if ($AADDevice.physicalIds) {
-                                foreach ($physicalId in $AADDevice.physicalIds) {
-                                    if ($physicalId -match '\[SerialNumber\]:(.+)') {
-                                        $deviceSerial = $matches[1].Trim()
-                                        break
-                                    }
-                                }
-                            }
-                            
-                            # If we have a serial number to match, skip devices that don't match
-                            if ($serialNumber -and $deviceSerial -and $deviceSerial -ne $serialNumber) {
-                                Write-Log "Skipping Entra ID device with ID $($AADDevice.id) - serial number mismatch (Device: $deviceSerial, Expected: $serialNumber)"
-                                continue
-                            }
-                            
-                            try {
-                                $uri = "https://graph.microsoft.com/v1.0/devices/$($AADDevice.id)"
-                                Invoke-MgGraphRequest -Uri $uri -Method DELETE
-                                $deletedCount++
-                                Write-Log "Successfully removed device $deviceName (ID: $($AADDevice.id), Serial: $deviceSerial) from Entra ID."
-                            }
-                            catch {
-                                $failedCount++
-                                $allErrors += $_.Exception.Message
-                                Write-Log "Error removing device $deviceName (ID: $($AADDevice.id)) from Entra ID: $_"
-                            }
-                        }
-                        
-                        # Set overall success/failure status
-                        if ($deletedCount -gt 0 -and $failedCount -eq 0) {
-                            $deviceResult.EntraID.Success = $true
-                            if ($deletedCount -gt 1) {
-                                Write-Log "Successfully removed all $deletedCount duplicate devices named '$deviceName' from Entra ID."
-                            }
-                        }
-                        elseif ($deletedCount -gt 0 -and $failedCount -gt 0) {
-                            $deviceResult.EntraID.Success = $false
-                            $deviceResult.EntraID.Error = "Partial success: Deleted $deletedCount device(s), failed to delete $failedCount device(s). Errors: " + ($allErrors -join "; ")
-                        }
-                        else {
-                            $deviceResult.EntraID.Success = $false
-                            $deviceResult.EntraID.Error = "Failed to delete any devices. Errors: " + ($allErrors -join "; ")
-                        }
+                        $deviceResult.EntraID.Action = "Disabled"
+                        $batchRequests += @{ id = "entra"; method = "PATCH"; url = "/devices/$($device.EntraDeviceId)"; body = @{ accountEnabled = $false }; headers = @{ "Content-Type" = "application/json" } }
+                    } else {
+                        Write-Log "Skipping Entra ID disable for $deviceName - no Entra Device ID resolved" -Severity "WARN"
                     }
-                    else {
-                        Write-Log "Device $deviceName not found in Entra ID."
+                } elseif ($deleteEntra) {
+                    if ($device.EntraDeviceId) {
+                        $deviceResult.EntraID.Found = $true
+                        $deviceResult.EntraID.Action = "Removed"
+                        $batchRequests += @{ id = "entra"; method = "DELETE"; url = "/devices/$($device.EntraDeviceId)" }
+                    } else {
+                        Write-Log "Skipping Entra ID deletion for $deviceName - no Entra Device ID resolved" -Severity "WARN"
                     }
-                }
-                elseif ($deviceName -and -not $script:serviceCheckboxes["Entra ID"].IsChecked) {
-                    Write-Log "Skipping Entra ID removal for device $deviceName (not selected)"
+                } else {
+                    Write-Log "Skipping Entra ID operation for device $deviceName (not selected)"
                 }
 
-                # Get Intune Device
-                if ($script:serviceCheckboxes["Intune"].IsChecked) {
-                    if ($deviceName) {
-                        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=deviceName eq '$deviceName'"
-                        $IntuneDevice = (Invoke-MgGraphRequest -Uri $uri -Method GET).value | Select-Object -First 1
-                    }
-                    if (-not $IntuneDevice -and $serialNumber) {
-                        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=serialNumber eq '$serialNumber'"
-                        $IntuneDevice = (Invoke-MgGraphRequest -Uri $uri -Method GET).value | Select-Object -First 1
-                    }
-                    if ($IntuneDevice) {
+                if ($deleteIntune) {
+                    if ($device.IntuneDeviceId) {
                         $deviceResult.Intune.Found = $true
-                        
-                        # Capture the serial number from Intune device if we don't have it
-                        if (-not $serialNumber -and $IntuneDevice.serialNumber) {
-                            $serialNumber = $IntuneDevice.serialNumber
-                            Write-Log "Retrieved serial number from Intune device: $serialNumber"
-                        }
-                        
-                        try {
-                            $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/$($IntuneDevice.id)"
-                            Invoke-MgGraphRequest -Uri $uri -Method DELETE
-                            $deviceResult.Intune.Success = $true
-                            Write-Log "Successfully removed device $deviceName from Intune."
-                        }
-                        catch {
-                            $deviceResult.Intune.Error = $_.Exception.Message
-                            Write-Log "Error removing device $deviceName from Intune: $_"
-                        }
+                        $batchRequests += @{ id = "intune"; method = "DELETE"; url = "/deviceManagement/managedDevices/$($device.IntuneDeviceId)" }
+                    } else {
+                        Write-Log "Skipping Intune deletion for $deviceName - no Intune Device ID resolved" -Severity "WARN"
                     }
-                    else {
-                        Write-Log "Device $deviceName not found in Intune."
-                    }
-                }
-                else {
+                } else {
                     Write-Log "Skipping Intune removal for device $deviceName (not selected)"
                 }
 
-                # Get Autopilot Device
-                if ($script:serviceCheckboxes["Autopilot"].IsChecked) {
-                    $AutopilotDevice = $null
-                    
-                    # Try to find by serial number first if available
-                    if ($serialNumber) {
-                        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$serialNumber')"
-                        $AutopilotDevice = (Invoke-MgGraphRequest -Uri $uri -Method GET).value | Select-Object -First 1
-                        
-                        if (-not $AutopilotDevice) {
-                            Write-Log "Device with serial $serialNumber not found in Autopilot, trying by display name..."
-                        }
-                    }
-                    
-                    # If not found by serial number or no serial number available, try by display name
-                    if (-not $AutopilotDevice -and $deviceName) {
-                        Write-Log "Searching Autopilot by display name: $deviceName (using client-side filtering)"
-                        try {
-                            # Get all Autopilot devices and filter client-side since API doesn't support displayName filtering
-                            $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities"
-                            $allAutopilotDevices = Get-GraphPagedResults -Uri $uri
-                            
-                            # Filter by display name (case-insensitive partial match)
-                            $AutopilotDevice = $allAutopilotDevices | Where-Object { 
-                                $_.displayName -and $_.displayName -like "*$deviceName*" 
-                            } | Select-Object -First 1
-                            
-                            if ($AutopilotDevice) {
-                                Write-Log "Found Autopilot device matching display name: $($AutopilotDevice.displayName)"
-                            }
-                        }
-                        catch {
-                            Write-Log "Error searching Autopilot devices by display name: $_"
-                        }
-                    }
-                    
-                    if ($AutopilotDevice) {
+                # Include Autopilot in per-device batch only if not using bulk deletion
+                if ($deleteAutopilot -and -not $useBulkAutopilot) {
+                    if ($device.AutopilotIdentityId) {
                         $deviceResult.Autopilot.Found = $true
-                        try {
-                            $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities/$($AutopilotDevice.id)"
-                            Invoke-MgGraphRequest -Uri $uri -Method DELETE
-                            $deviceResult.Autopilot.Success = $true
-                            Write-Log "Successfully removed device $deviceName from Autopilot (ID: $($AutopilotDevice.id))."
-                        }
-                        catch {
-                            $deviceResult.Autopilot.Error = $_.Exception.Message
-                            Write-Log "Error removing device $deviceName from Autopilot: $_"
-                        }
+                        $batchRequests += @{ id = "autopilot"; method = "DELETE"; url = "/deviceManagement/windowsAutopilotDeviceIdentities/$($device.AutopilotIdentityId)" }
+                    } else {
+                        Write-Log "Skipping Autopilot deletion for $deviceName - no Autopilot Identity ID resolved" -Severity "WARN"
                     }
-                    else {
-                        $searchCriteria = if ($serialNumber) { "serial $serialNumber or name $deviceName" } else { "name $deviceName" }
-                        Write-Log "Device with $searchCriteria not found in Autopilot."
+                } elseif ($deleteAutopilot -and $useBulkAutopilot) {
+                    if ($device.AutopilotIdentityId) {
+                        $deviceResult.Autopilot.Found = $true
+                        # Will be handled by bulk deletion after the loop
+                    } else {
+                        Write-Log "Skipping Autopilot deletion for $deviceName - no Autopilot Identity ID resolved" -Severity "WARN"
                     }
-                }
-                else {
+                } else {
                     Write-Log "Skipping Autopilot removal for device $deviceName (not selected)"
                 }
 
+                # Execute batch if there are requests
+                if ($batchRequests.Count -gt 0) {
+                    try {
+                        $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
+
+                        # Parse Entra response
+                        $entraResp = $batchResponses | Where-Object { $_.id -eq "entra" }
+                        if ($entraResp) {
+                            if ($entraResp.status -in @(200, 204)) {
+                                $deviceResult.EntraID.Success = $true
+                                Write-Log "Successfully $($deviceResult.EntraID.Action.ToLower()) device $deviceName in Entra ID (ID: $($device.EntraDeviceId))" -Severity "AUDIT"
+                            } else {
+                                $deviceResult.EntraID.Error = "HTTP $($entraResp.status)"
+                                Write-Log "Error with Entra ID operation for $deviceName`: HTTP $($entraResp.status)" -Severity "ERROR"
+                            }
+                        }
+
+                        # Parse Intune response
+                        $intuneResp = $batchResponses | Where-Object { $_.id -eq "intune" }
+                        if ($intuneResp) {
+                            if ($intuneResp.status -in @(200, 204)) {
+                                $deviceResult.Intune.Success = $true
+                                Write-Log "Successfully removed device $deviceName from Intune (ID: $($device.IntuneDeviceId))" -Severity "AUDIT"
+                            } else {
+                                $deviceResult.Intune.Error = "HTTP $($intuneResp.status)"
+                                Write-Log "Error removing device $deviceName from Intune: HTTP $($intuneResp.status)" -Severity "ERROR"
+                            }
+                        }
+
+                        # Parse Autopilot response (only if not using bulk)
+                        $autopilotResp = $batchResponses | Where-Object { $_.id -eq "autopilot" }
+                        if ($autopilotResp) {
+                            if ($autopilotResp.status -in @(200, 204)) {
+                                $deviceResult.Autopilot.Success = $true
+                                Write-Log "Successfully removed device $deviceName from Autopilot (ID: $($device.AutopilotIdentityId))" -Severity "AUDIT"
+                            } else {
+                                $deviceResult.Autopilot.Error = "HTTP $($autopilotResp.status)"
+                                Write-Log "Error removing device $deviceName from Autopilot: HTTP $($autopilotResp.status)" -Severity "ERROR"
+                            }
+                        }
+                    }
+                    catch {
+                        Write-Log "Batch request failed for device $deviceName`: $_" -Severity "ERROR"
+                        if ($deviceResult.EntraID.Found -and -not $deviceResult.EntraID.Success) { $deviceResult.EntraID.Error = $_.Exception.Message }
+                        if ($deviceResult.Intune.Found -and -not $deviceResult.Intune.Success) { $deviceResult.Intune.Error = $_.Exception.Message }
+                        if ($deviceResult.Autopilot.Found -and -not $deviceResult.Autopilot.Success) { $deviceResult.Autopilot.Error = $_.Exception.Message }
+                    }
+                }
+
                 $offboardingResults += $deviceResult
-                Write-Log "Completed offboarding attempt for device: $deviceName"
+                Write-Log "Completed offboarding attempt for device: $deviceName" -Severity "AUDIT"
+            }
+
+            # Bulk Autopilot deletion when 2+ devices have serial numbers
+            if ($useBulkAutopilot -and $bulkAutopilotSerials.Count -ge 2) {
+                Write-Log "Executing bulk Autopilot deletion for $($bulkAutopilotSerials.Count) devices by serial number" -Severity "AUDIT"
+                try {
+                    $bulkBody = @{
+                        serialNumbers = $bulkAutopilotSerials
+                    } | ConvertTo-Json -Depth 5
+                    $bulkResponse = Invoke-GraphRequestWithRetry -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/deleteDevices" -Method POST -Body $bulkBody -ContentType "application/json"
+
+                    # Parse per-device deletion status from response
+                    if ($bulkResponse.value) {
+                        foreach ($deleteState in $bulkResponse.value) {
+                            $matchingResult = $offboardingResults | Where-Object { $_.SerialNumber -eq $deleteState.serialNumber }
+                            if ($matchingResult) {
+                                if ($deleteState.deletionState -eq "failed") {
+                                    $matchingResult.Autopilot.Error = $deleteState.errorMessage
+                                    Write-Log "Bulk Autopilot deletion failed for serial $($deleteState.serialNumber): $($deleteState.errorMessage)" -Severity "ERROR"
+                                } else {
+                                    $matchingResult.Autopilot.Success = $true
+                                }
+                            }
+                        }
+                    } else {
+                        # No detailed response -- set optimistic success
+                        foreach ($result in $offboardingResults) {
+                            if ($result.Autopilot.Found) {
+                                $result.Autopilot.Success = $true
+                            }
+                        }
+                    }
+                    Write-Log "Bulk Autopilot deletion completed for $($bulkAutopilotSerials.Count) devices" -Severity "AUDIT"
+                }
+                catch {
+                    Write-Log "Bulk Autopilot deletion failed: $_ -- falling back to individual deletion" -Severity "ERROR"
+                    foreach ($result in $offboardingResults) {
+                        if ($result.Autopilot.Found -and -not $result.Autopilot.Success) {
+                            $matchingDevice = $selectedDevices | Where-Object { $_.DeviceName -eq $result.DeviceName -and $_.AutopilotIdentityId }
+                            if ($matchingDevice) {
+                                try {
+                                    Invoke-GraphRequestWithRetry -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/$($matchingDevice.AutopilotIdentityId)" -Method DELETE
+                                    $result.Autopilot.Success = $true
+                                    Write-Log "Successfully removed device $($result.DeviceName) from Autopilot (fallback)" -Severity "AUDIT"
+                                }
+                                catch {
+                                    $result.Autopilot.Error = $_.Exception.Message
+                                    Write-Log "Error removing device $($result.DeviceName) from Autopilot (fallback): $_" -Severity "ERROR"
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             # Show summary of all operations
@@ -4446,7 +4787,12 @@ $OffboardButton.Add_Click({
             $allIntuneSuccess = $offboardingResults | Where-Object { $_.Intune.Found -and $_.Intune.Success } | Measure-Object | Select-Object -ExpandProperty Count
             $allAutopilotSuccess = $offboardingResults | Where-Object { $_.Autopilot.Found -and $_.Autopilot.Success } | Measure-Object | Select-Object -ExpandProperty Count
             
-            if ($allEntraSuccess -gt 0) {
+            $allEntraDisabled = $offboardingResults | Where-Object { $_.EntraID.Found -and $_.EntraID.Success -and $_.EntraID.Action -eq "Disabled" } | Measure-Object | Select-Object -ExpandProperty Count
+            if ($allEntraDisabled -gt 0) {
+                $Window.FindName('aad_status').Text = "Entra ID: Devices Disabled"
+                $Window.FindName('aad_status').Foreground = "#ECC94B"
+            }
+            elseif ($allEntraSuccess -gt 0) {
                 $Window.FindName('aad_status').Text = "Entra ID: Devices Removed"
                 $Window.FindName('aad_status').Foreground = "#FC8181"
             }
@@ -4692,13 +5038,16 @@ function Show-OffboardingSummary {
         $deviceTotal = 0
 
         # Pre-compute skip flags and count successes outside PSCustomObject to avoid $deviceSuccess++ polluting the pipeline
-        $entraIDSkipped = $script:serviceCheckboxes -and $script:serviceCheckboxes["Entra ID"] -and -not $script:serviceCheckboxes["Entra ID"].IsChecked
+        $entraIDSkipped = $script:serviceCheckboxes -and $script:serviceCheckboxes["Entra ID"] -and -not $script:serviceCheckboxes["Entra ID"].IsChecked -and -not ($script:serviceCheckboxes.ContainsKey("Disable in Entra ID") -and $script:serviceCheckboxes["Disable in Entra ID"].IsChecked)
         $intuneSkipped = $script:serviceCheckboxes -and $script:serviceCheckboxes["Intune"] -and -not $script:serviceCheckboxes["Intune"].IsChecked
         $autopilotSkipped = $script:serviceCheckboxes -and $script:serviceCheckboxes["Autopilot"] -and -not $script:serviceCheckboxes["Autopilot"].IsChecked
 
         if (-not $entraIDSkipped -and $result.EntraID.Found -and $result.EntraID.Success) { $deviceSuccess++ }
         if (-not $intuneSkipped -and $result.Intune.Found -and $result.Intune.Success) { $deviceSuccess++ }
         if (-not $autopilotSkipped -and $result.Autopilot.Found -and $result.Autopilot.Success) { $deviceSuccess++ }
+
+        # Determine Entra ID action label
+        $entraActionLabel = if ($result.EntraID.Action -eq "Disabled") { "Disabled" } else { "Removed" }
 
         # Create display object for this device
         $displayResult = [PSCustomObject]@{
@@ -4710,13 +5059,13 @@ function Show-OffboardingSummary {
                 "Skipped"
             }
             elseif ($result.EntraID.Found) {
-                if ($result.EntraID.Success) { "✓ Removed" } else { "✗ Failed" }
+                if ($result.EntraID.Success) { "✓ $entraActionLabel" } else { "✗ Failed" }
             }
             else { "Not Found" }
             EntraIDColor             = if ($entraIDSkipped) {
                 "#A0AEC0"
             }
-            elseif (!$result.EntraID.Found) { "#718096" } elseif ($result.EntraID.Success) { "#48BB78" } else { "#F56565" }
+            elseif (!$result.EntraID.Found) { "#718096" } elseif ($result.EntraID.Success -and $result.EntraID.Action -eq "Disabled") { "#ECC94B" } elseif ($result.EntraID.Success) { "#48BB78" } else { "#F56565" }
             EntraIDError             = $result.EntraID.Error
             EntraIDErrorVisibility   = if ($result.EntraID.Error) { "Visible" } else { "Collapsed" }
 
@@ -4752,8 +5101,9 @@ function Show-OffboardingSummary {
         }
         
         # Count total services device was found in (only for selected services)
-        if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Entra ID"] -and $script:serviceCheckboxes["Entra ID"].IsChecked -and $result.EntraID.Found) { 
-            $deviceTotal++ 
+        $entraSelected = ($script:serviceCheckboxes -and $script:serviceCheckboxes["Entra ID"] -and $script:serviceCheckboxes["Entra ID"].IsChecked) -or ($script:serviceCheckboxes -and $script:serviceCheckboxes.ContainsKey("Disable in Entra ID") -and $script:serviceCheckboxes["Disable in Entra ID"].IsChecked)
+        if ($entraSelected -and $result.EntraID.Found) {
+            $deviceTotal++
         }
         if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Intune"] -and $script:serviceCheckboxes["Intune"].IsChecked -and $result.Intune.Found) { 
             $deviceTotal++ 
@@ -5185,12 +5535,11 @@ $PrerequisitesButton.Add_Click({
     })
 
 $logs_button.Add_Click({
-        $logFilePath = [System.IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "IntuneOffboardingTool_Log.txt")
-        if (Test-Path $logFilePath) {
-            Invoke-Item $logFilePath
+        if (Test-Path $script:LogDirectory) {
+            Invoke-Item $script:LogDirectory
         }
         else {
-            Write-Host "Log file not found."
+            [System.Windows.MessageBox]::Show("Log directory not found.", "Logs", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         }
     })
         
@@ -5262,357 +5611,330 @@ function Update-DashboardStatistics {
     try {
         Write-Log "Updating dashboard statistics..."
         $startTime = Get-Date
-        Write-Log "Starting parallel API calls at $startTime"
-            
-        # Run each call in a separate thread job with timing
-        Write-Log "Starting Intune devices job..."
-        $intuneJobStart = Get-Date
-        $intuneJob = Start-ThreadJob -ScriptBlock {
-            function Get-GraphPagedResults {
-                param([string]$Uri)
-                $results = @()
-                $nextLink = $Uri
-                do {
-                    $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
-                    if ($response.value) { $results += $response.value }
-                    $nextLink = $response.'@odata.nextLink'
-                } while ($nextLink)
-                return $results
+
+        # Try $count batch approach first (single API call instead of fetching all devices)
+        $countSuccess = $false
+        try {
+            $thirtyDaysAgo = (Get-Date).AddDays(-30).ToString('yyyy-MM-ddTHH:mm:ssZ')
+            $ninetyDaysAgo = (Get-Date).AddDays(-90).ToString('yyyy-MM-ddTHH:mm:ssZ')
+            $oneEightyDaysAgo = (Get-Date).AddDays(-180).ToString('yyyy-MM-ddTHH:mm:ssZ')
+
+            $batchBody = @{
+                requests = @(
+                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices/`$count"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities/`$count"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "entra"; method = "GET"; url = "/devices/`$count"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "stale30"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $thirtyDaysAgo"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "stale90"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $ninetyDaysAgo"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "stale180"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $oneEightyDaysAgo"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "personal"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=managedDeviceOwnerType eq 'personal'"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "corporate"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=managedDeviceOwnerType eq 'company'"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "osWindows"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=startswith(operatingSystem,'Windows')"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "osmacOS"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'macOS'"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "osiOS"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'iOS'"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "osAndroid"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'Android'"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "osLinux"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'Linux'"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                )
+            } | ConvertTo-Json -Depth 5
+
+            $batchResponse = Invoke-GraphRequestWithRetry -Uri "https://graph.microsoft.com/beta/`$batch" -Method POST -Body $batchBody -ContentType "application/json"
+            $batchResponses = $batchResponse.responses
+
+            # Helper to extract count from batch response (handles both raw int and hashtable wrapper)
+            $getCount = {
+                param([string]$id)
+                $resp = $batchResponses | Where-Object { $_.id -eq $id }
+                if ($resp -and $resp.status -eq 200) {
+                    $rawBody = $resp.body
+                    if ($rawBody -is [int] -or $rawBody -is [long]) {
+                        return [int]$rawBody
+                    } elseif ($rawBody -is [System.Collections.IDictionary] -and $rawBody.ContainsKey('value')) {
+                        return [int]$rawBody['value']
+                    } else {
+                        return [int]$rawBody
+                    }
+                }
+                return $null
             }
-            # Pull Intune devices
-            $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices"
-            $devices = Get-GraphPagedResults -Uri $uri
-            # Ensure we return an array
-            return @($devices)
-        }
-        
-        Write-Log "Starting Autopilot devices job..."
-        $autopilotJobStart = Get-Date
-        $autopilotJob = Start-ThreadJob -ScriptBlock {
-            function Get-GraphPagedResults {
-                param([string]$Uri)
-                $results = @()
-                $nextLink = $Uri
-                do {
-                    $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
-                    if ($response.value) { $results += $response.value }
-                    $nextLink = $response.'@odata.nextLink'
-                } while ($nextLink)
-                return $results
+
+            $intuneCount = & $getCount "intune"
+            $autopilotCount = & $getCount "autopilot"
+            $entraCount = & $getCount "entra"
+            $stale30 = & $getCount "stale30"
+            $stale90 = & $getCount "stale90"
+            $stale180 = & $getCount "stale180"
+            $personalDevices = & $getCount "personal"
+            $corporateDevices = & $getCount "corporate"
+            $osWindows = & $getCount "osWindows"
+            $osmacOS = & $getCount "osmacOS"
+            $osiOS = & $getCount "osiOS"
+            $osAndroid = & $getCount "osAndroid"
+            $osLinux = & $getCount "osLinux"
+
+            # Verify all counts were retrieved
+            $allCounts = @($intuneCount, $autopilotCount, $entraCount, $stale30, $stale90, $stale180, $personalDevices, $corporateDevices)
+            if ($allCounts -contains $null) {
+                throw "One or more $count queries returned an error"
             }
-            # Pull Autopilot devices
-            $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities"
-            $devices = Get-GraphPagedResults -Uri $uri
-            # Ensure we return an array
-            return @($devices)
-        }
-        
-        Write-Log "Starting Entra ID devices job..."
-        $entraJobStart = Get-Date
-        $entraJob = Start-ThreadJob -ScriptBlock {
-            function Get-GraphPagedResults {
-                param([string]$Uri)
-                $results = @()
-                $nextLink = $Uri
-                do {
-                    $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
-                    if ($response.value) { $results += $response.value }
-                    $nextLink = $response.'@odata.nextLink'
-                } while ($nextLink)
-                return $results
+
+            $countSuccess = $true
+            $duration = (Get-Date) - $startTime
+            Write-Log "Dashboard $count batch completed in $($duration.TotalSeconds) seconds"
+
+            # Update top row counts
+            $Window.FindName('IntuneDevicesCount').Text = $intuneCount
+            $Window.FindName('AutopilotDevicesCount').Text = $autopilotCount
+            $Window.FindName('EntraIDDevicesCount').Text = $entraCount
+
+            Write-Log "Stale device counts - 30 days: $stale30, 90 days: $stale90, 180 days: $stale180"
+            $Window.FindName('StaleDevices30Count').Text = $stale30
+            $Window.FindName('StaleDevices90Count').Text = $stale90
+            $Window.FindName('StaleDevices180Count').Text = $stale180
+
+            # Update personal/corporate counts and progress bars
+            $Window.FindName('PersonalDevicesCount').Text = $personalDevices
+            $Window.FindName('CorporateDevicesCount').Text = $corporateDevices
+
+            $totalDevices = $intuneCount
+            if ($totalDevices -gt 0) {
+                $personalProgress = [Math]::Round(($personalDevices / $totalDevices) * 100)
+                $corporateProgress = [Math]::Round(($corporateDevices / $totalDevices) * 100)
+                $Window.FindName('PersonalDevicesProgress').Value = $personalProgress
+                $Window.FindName('CorporateDevicesProgress').Value = $corporateProgress
             }
-            # Pull Entra ID devices
-            $uri = "https://graph.microsoft.com/v1.0/devices"
-            $devices = Get-GraphPagedResults -Uri $uri
-            # Ensure we return an array
-            return @($devices)
+
+            # Build platform groups from $count results for pie chart
+            # Compute "Other" as total minus known OS counts
+            if ($null -eq $osWindows) { $osWindows = 0 }
+            if ($null -eq $osmacOS) { $osmacOS = 0 }
+            if ($null -eq $osiOS) { $osiOS = 0 }
+            if ($null -eq $osAndroid) { $osAndroid = 0 }
+            if ($null -eq $osLinux) { $osLinux = 0 }
+            $osOther = [Math]::Max(0, $intuneCount - ($osWindows + $osmacOS + $osiOS + $osAndroid + $osLinux))
+
+            $platformGroups = @()
+            if ($osWindows -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Windows'; Count = $osWindows } }
+            if ($osmacOS -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'macOS'; Count = $osmacOS } }
+            if ($osiOS -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'iOS'; Count = $osiOS } }
+            if ($osAndroid -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Android'; Count = $osAndroid } }
+            if ($osLinux -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Linux'; Count = $osLinux } }
+            if ($osOther -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Other'; Count = $osOther } }
+            $platformGroups = $platformGroups | Sort-Object Count -Descending
         }
-        
-        # Wait for jobs to finish and grab results with timing
-        Write-Log "Waiting for all jobs to complete..."
-        Wait-Job -Job $intuneJob, $autopilotJob, $entraJob | Out-Null
-        
-        # Check for job errors and get results
-        $intuneJobResult = try {
-            Receive-Job -Job $intuneJob -ErrorAction Stop
-        } catch {
-            Write-Log "Error receiving Intune devices job: $_"
-            $null
+        catch {
+            Write-Log "Dashboard `$count batch failed, falling back to full fetch: $_" -Severity "WARN"
         }
-        $intuneJobDuration = (Get-Date) - $intuneJobStart
-        Write-Log "Intune devices job completed in $($intuneJobDuration.TotalSeconds) seconds"
-        
-        $autopilotJobResult = try {
-            Receive-Job -Job $autopilotJob -ErrorAction Stop
-        } catch {
-            Write-Log "Error receiving Autopilot devices job: $_"
-            $null
-        }
-        $autopilotJobDuration = (Get-Date) - $autopilotJobStart
-        Write-Log "Autopilot devices job completed in $($autopilotJobDuration.TotalSeconds) seconds"
-        
-        $entraJobResult = try {
-            Receive-Job -Job $entraJob -ErrorAction Stop
-        } catch {
-            Write-Log "Error receiving Entra ID devices job: $_"
-            $null
-        }
-        $entraJobDuration = (Get-Date) - $entraJobStart
-        Write-Log "Entra ID devices job completed in $($entraJobDuration.TotalSeconds) seconds"
-        
-        # Convert results to arrays, handling various return types
-        $intuneDevices = if ($null -eq $intuneJobResult) {
-            @()
-        } elseif ($intuneJobResult -is [System.Collections.Hashtable]) {
-            Write-Log "WARNING: Intune job returned a hashtable instead of array. Converting..."
-            @($intuneJobResult.value)
-        } elseif ($intuneJobResult -is [System.Array]) {
-            $intuneJobResult
-        } else {
-            @($intuneJobResult)
-        }
-        
-        $autopilotDevices = if ($null -eq $autopilotJobResult) {
-            @()
-        } elseif ($autopilotJobResult -is [System.Collections.Hashtable]) {
-            Write-Log "WARNING: Autopilot job returned a hashtable instead of array. Converting..."
-            @($autopilotJobResult.value)
-        } elseif ($autopilotJobResult -is [System.Array]) {
-            $autopilotJobResult
-        } else {
-            @($autopilotJobResult)
-        }
-        
-        $entraDevices = if ($null -eq $entraJobResult) {
-            @()
-        } elseif ($entraJobResult -is [System.Collections.Hashtable]) {
-            Write-Log "WARNING: Entra job returned a hashtable instead of array. Converting..."
-            @($entraJobResult.value)
-        } elseif ($entraJobResult -is [System.Array]) {
-            $entraJobResult
-        } else {
-            @($entraJobResult)
-        }
-        
-        # Clean up jobs
-        Remove-Job -Job $intuneJob, $autopilotJob, $entraJob -Force
-        
-        Write-Log "Total devices - Intune: $($intuneDevices.Count), Autopilot: $($autopilotDevices.Count), Entra: $($entraDevices.Count)"
-        
-        # Update top row counts
-        $Window.FindName('IntuneDevicesCount').Text = $intuneDevices.Count
-        $Window.FindName('AutopilotDevicesCount').Text = $autopilotDevices.Count
-        $Window.FindName('EntraIDDevicesCount').Text = $entraDevices.Count
-    
-        # Calculate stale devices
-        $thirtyDaysAgo = (Get-Date).AddDays(-30)
-        $ninetyDaysAgo = (Get-Date).AddDays(-90)
-        $onehundredEightyDaysAgo = (Get-Date).AddDays(-180)
-        
-        Write-Log "Total Intune devices to check: $($intuneDevices.Count)"
-    
-        $stale30 = ($intuneDevices | Where-Object { 
+
+        # Fallback: full-fetch approach if $count batch failed
+        if (-not $countSuccess) {
+            $intuneJob = Start-ThreadJob -ScriptBlock {
+                function Get-GraphPagedResults {
+                    param([string]$Uri)
+                    $results = @()
+                    $nextLink = $Uri
+                    do {
+                        $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
+                        if ($response.value) { $results += $response.value }
+                        $nextLink = $response.'@odata.nextLink'
+                    } while ($nextLink)
+                    return $results
+                }
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,managedDeviceOwnerType"
+                return @(Get-GraphPagedResults -Uri $uri)
+            }
+            $autopilotJob = Start-ThreadJob -ScriptBlock {
+                function Get-GraphPagedResults {
+                    param([string]$Uri)
+                    $results = @()
+                    $nextLink = $Uri
+                    do {
+                        $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
+                        if ($response.value) { $results += $response.value }
+                        $nextLink = $response.'@odata.nextLink'
+                    } while ($nextLink)
+                    return $results
+                }
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime"
+                return @(Get-GraphPagedResults -Uri $uri)
+            }
+            $entraJob = Start-ThreadJob -ScriptBlock {
+                function Get-GraphPagedResults {
+                    param([string]$Uri)
+                    $results = @()
+                    $nextLink = $Uri
+                    do {
+                        $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
+                        if ($response.value) { $results += $response.value }
+                        $nextLink = $response.'@odata.nextLink'
+                    } while ($nextLink)
+                    return $results
+                }
+                $uri = "https://graph.microsoft.com/beta/devices?`$select=displayName,operatingSystem,operatingSystemVersion"
+                return @(Get-GraphPagedResults -Uri $uri)
+            }
+
+            Wait-Job -Job $intuneJob, $autopilotJob, $entraJob | Out-Null
+
+            $intuneDevices = try { @(Receive-Job -Job $intuneJob -ErrorAction Stop) } catch { @() }
+            $autopilotDevices = try { @(Receive-Job -Job $autopilotJob -ErrorAction Stop) } catch { @() }
+            $entraDevices = try { @(Receive-Job -Job $entraJob -ErrorAction Stop) } catch { @() }
+            Remove-Job -Job $intuneJob, $autopilotJob, $entraJob -Force
+
+            # Handle hashtable returns
+            if ($intuneDevices.Count -eq 1 -and $intuneDevices[0] -is [System.Collections.Hashtable]) { $intuneDevices = @($intuneDevices[0].value) }
+            if ($autopilotDevices.Count -eq 1 -and $autopilotDevices[0] -is [System.Collections.Hashtable]) { $autopilotDevices = @($autopilotDevices[0].value) }
+            if ($entraDevices.Count -eq 1 -and $entraDevices[0] -is [System.Collections.Hashtable]) { $entraDevices = @($entraDevices[0].value) }
+
+            Write-Log "Fallback: Total devices - Intune: $($intuneDevices.Count), Autopilot: $($autopilotDevices.Count), Entra: $($entraDevices.Count)"
+
+            $Window.FindName('IntuneDevicesCount').Text = $intuneDevices.Count
+            $Window.FindName('AutopilotDevicesCount').Text = $autopilotDevices.Count
+            $Window.FindName('EntraIDDevicesCount').Text = $entraDevices.Count
+
+            # Calculate stale devices client-side
+            $thirtyDaysAgo = (Get-Date).AddDays(-30)
+            $ninetyDaysAgo = (Get-Date).AddDays(-90)
+            $onehundredEightyDaysAgo = (Get-Date).AddDays(-180)
+
+            $stale30 = ($intuneDevices | Where-Object {
                 if ($_.lastSyncDateTime) {
-                    try { 
-                        $lastSync = ConvertTo-SafeDateTime -dateString $_.lastSyncDateTime
-                        if (-not $lastSync) { return $false }
-                        return $lastSync -lt $thirtyDaysAgo
-                    }
-                    catch { 
-                        Write-Log "Error parsing date: $($_.lastSyncDateTime). Error: $_"
-                        return $false 
-                    }
-                }
-                else { return $false }
+                    try { $lastSync = ConvertTo-SafeDateTime -dateString $_.lastSyncDateTime; return $lastSync -and $lastSync -lt $thirtyDaysAgo }
+                    catch { return $false }
+                } else { return $false }
             }).Count
-        
-        # Calculate 90-day stale devices
-        Write-Log "Calculating 90-day stale devices from $($intuneDevices.Count) Intune devices"
-        $stale90Count = 0
-        foreach ($device in $intuneDevices) {
-            if ($device.lastSyncDateTime) {
-                try {
-                    $lastSync = ConvertTo-SafeDateTime -dateString $device.lastSyncDateTime
-                    if ($lastSync -and ($lastSync -lt $ninetyDaysAgo)) {
-                        Write-Log "90-day stale device found: $($device.deviceName), LastSync: $lastSync"
-                        $stale90Count++
-                    }
-                }
-                catch {
-                    Write-Log "Error parsing date for device $($device.deviceName): $_"
-                }
-            }
-        }
-        $stale90 = $stale90Count
-        Write-Log "90-day stale devices found: $stale90"
-        
-        # Calculate 180-day stale devices
-        Write-Log "Calculating 180-day stale devices from $($intuneDevices.Count) Intune devices"
-        $stale180Count = 0
-        foreach ($device in $intuneDevices) {
-            if ($device.lastSyncDateTime) {
-                try {
-                    $lastSync = ConvertTo-SafeDateTime -dateString $device.lastSyncDateTime
-                    if ($lastSync -and ($lastSync -lt $onehundredEightyDaysAgo)) {
-                        Write-Log "180-day stale device found: $($device.deviceName), LastSync: $lastSync"
-                        $stale180Count++
-                    }
-                }
-                catch {
-                    Write-Log "Error parsing date for device $($device.deviceName): $_"
-                }
-            }
-        }
-        $stale180 = $stale180Count
-    
-        Write-Log "Stale device counts - 30 days: $stale30, 90 days: $stale90, 180 days: $stale180"
-        $Window.FindName('StaleDevices30Count').Text = $stale30
-        $Window.FindName('StaleDevices90Count').Text = $stale90
-        $Window.FindName('StaleDevices180Count').Text = $stale180
-    
-        # Update personal/corporate counts and progress bars
-        $personalDevices = ($intuneDevices | Where-Object { $_.managedDeviceOwnerType -eq 'personal' }).Count
-        $corporateDevices = ($intuneDevices | Where-Object { $_.managedDeviceOwnerType -eq 'company' }).Count
-        $totalDevices = if ($intuneDevices) { $intuneDevices.Count } else { 0 }
-    
-        # Update counts
-        $Window.FindName('PersonalDevicesCount').Text = $personalDevices
-        $Window.FindName('CorporateDevicesCount').Text = $corporateDevices
-    
-        # Update progress bars
-        if ($totalDevices -gt 0) {
-            $personalProgress = [Math]::Round(($personalDevices / $totalDevices) * 100)
-            $corporateProgress = [Math]::Round(($corporateDevices / $totalDevices) * 100)
-                
-            $Window.FindName('PersonalDevicesProgress').Value = $personalProgress
-            $Window.FindName('CorporateDevicesProgress').Value = $corporateProgress
-        }
-    
-        # Group platform distribution
-        $platformGroups = $intuneDevices | Group-Object -Property {
-            $os = $_.operatingSystem
-            if ([string]::IsNullOrWhiteSpace($os)) { return "Unknown" }
-                
-            switch -Regex ($os.ToLower()) {
-                'windows' { "Windows" }
-                'macos|mac os' { "macOS" }
-                'linux' { "Linux" }
-                'ios' { "iOS" }
-                'android' { "Android" }
-                default { "Other" }
-            }
-        } | Sort-Object Count -Descending
+            $stale90 = ($intuneDevices | Where-Object {
+                if ($_.lastSyncDateTime) {
+                    try { $lastSync = ConvertTo-SafeDateTime -dateString $_.lastSyncDateTime; return $lastSync -and $lastSync -lt $ninetyDaysAgo }
+                    catch { return $false }
+                } else { return $false }
+            }).Count
+            $stale180 = ($intuneDevices | Where-Object {
+                if ($_.lastSyncDateTime) {
+                    try { $lastSync = ConvertTo-SafeDateTime -dateString $_.lastSyncDateTime; return $lastSync -and $lastSync -lt $onehundredEightyDaysAgo }
+                    catch { return $false }
+                } else { return $false }
+            }).Count
 
-        # Define platform colors
+            $Window.FindName('StaleDevices30Count').Text = $stale30
+            $Window.FindName('StaleDevices90Count').Text = $stale90
+            $Window.FindName('StaleDevices180Count').Text = $stale180
+
+            $personalDevices = ($intuneDevices | Where-Object { $_.managedDeviceOwnerType -eq 'personal' }).Count
+            $corporateDevices = ($intuneDevices | Where-Object { $_.managedDeviceOwnerType -eq 'company' }).Count
+            $totalDevices = if ($intuneDevices) { $intuneDevices.Count } else { 0 }
+
+            $Window.FindName('PersonalDevicesCount').Text = $personalDevices
+            $Window.FindName('CorporateDevicesCount').Text = $corporateDevices
+
+            if ($totalDevices -gt 0) {
+                $personalProgress = [Math]::Round(($personalDevices / $totalDevices) * 100)
+                $corporateProgress = [Math]::Round(($corporateDevices / $totalDevices) * 100)
+                $Window.FindName('PersonalDevicesProgress').Value = $personalProgress
+                $Window.FindName('CorporateDevicesProgress').Value = $corporateProgress
+            }
+
+            # Group platform distribution client-side
+            $platformGroups = $intuneDevices | Group-Object -Property {
+                $os = $_.operatingSystem
+                if ([string]::IsNullOrWhiteSpace($os)) { return "Unknown" }
+                switch -Regex ($os.ToLower()) {
+                    'windows' { "Windows" }
+                    'macos|mac os' { "macOS" }
+                    'linux' { "Linux" }
+                    'ios' { "iOS" }
+                    'android' { "Android" }
+                    default { "Other" }
+                }
+            } | Sort-Object Count -Descending
+        }
+
+        # Draw pie chart from $platformGroups (works for both $count and fallback paths)
         $platformColors = @{
-            'Windows' = '#0078D4'  # Microsoft Blue
-            'iOS'     = '#48BB78'  # Green
-            'Android' = '#9F7AEA'  # Purple
-            'macOS'   = '#F6AD55'  # Orange
-            'Linux'   = '#FC8181'  # Red
-            'Other'   = '#718096'  # Gray
-            'Unknown' = '#718096'  # Gray
+            'Windows' = '#0078D4'
+            'iOS'     = '#48BB78'
+            'Android' = '#9F7AEA'
+            'macOS'   = '#F6AD55'
+            'Linux'   = '#FC8181'
+            'Other'   = '#718096'
+            'Unknown' = '#718096'
         }
 
-        # Get the canvas and legend panel
         $canvas = $Window.FindName('PlatformDistributionCanvas')
         $legendPanel = $Window.FindName('PlatformDistributionLegend')
-
-        # Clear existing content
         $canvas.Children.Clear()
         $legendPanel.Children.Clear()
 
-        # Calculate total for percentages
         $total = ($platformGroups | Measure-Object Count -Sum).Sum
         if ($total -eq 0) { return }
 
-        # Initialize variables for pie chart
         $centerX = 100
         $centerY = 100
         $radius = 80
         $startAngle = 0
 
-        # Draw each platform segment
         foreach ($platform in $platformGroups) {
             $percentage = $platform.Count / $total
             $sweepAngle = 360 * $percentage
-            
-            # Convert angles to radians for calculation
+
             $startRad = $startAngle * [Math]::PI / 180
             $endRad = ($startAngle + $sweepAngle) * [Math]::PI / 180
-            
-            # Calculate arc points
+
             $startX = $centerX + $radius * [Math]::Cos($startRad)
             $startY = $centerY + $radius * [Math]::Sin($startRad)
             $endX = $centerX + $radius * [Math]::Cos($endRad)
             $endY = $centerY + $radius * [Math]::Sin($endRad)
-            
-            # Create path geometry
+
             $path = New-Object System.Windows.Shapes.Path
             $pathGeometry = New-Object System.Windows.Media.PathGeometry
             $pathFigure = New-Object System.Windows.Media.PathFigure
-            
-            # Start at center
+
             $pathFigure.StartPoint = New-Object System.Windows.Point($centerX, $centerY)
-            
-            # Add line to arc start
+
             $lineSegment = New-Object System.Windows.Media.LineSegment(
                 (New-Object System.Windows.Point($startX, $startY)), $true)
             $pathFigure.Segments.Add($lineSegment)
-            
-            # Add arc
+
             $arcSegment = New-Object System.Windows.Media.ArcSegment(
                 (New-Object System.Windows.Point($endX, $endY)),
                 (New-Object System.Windows.Size($radius, $radius)),
-                0, # RotationAngle
-                ($sweepAngle -gt 180), # IsLargeArc
+                0,
+                ($sweepAngle -gt 180),
                 [System.Windows.Media.SweepDirection]::Clockwise,
-                $true) # IsStroked
+                $true)
             $pathFigure.Segments.Add($arcSegment)
-            
-            # Close path
+
             $lineSegment = New-Object System.Windows.Media.LineSegment(
                 (New-Object System.Windows.Point($centerX, $centerY)), $true)
             $pathFigure.Segments.Add($lineSegment)
-            
-            # Add figure to geometry
+
             $pathGeometry.Figures.Add($pathFigure)
             $path.Data = $pathGeometry
-            
-            # Set color
-            $color = if ($platformColors.ContainsKey($platform.Name)) {
-                $platformColors[$platform.Name]
-            }
-            else {
-                $platformColors['Unknown']
-            }
+
+            $color = if ($platformColors.ContainsKey($platform.Name)) { $platformColors[$platform.Name] } else { $platformColors['Unknown'] }
             $path.Fill = New-Object System.Windows.Media.SolidColorBrush(
                 [System.Windows.Media.ColorConverter]::ConvertFromString($color))
-            
-            # Add to canvas
+
             $canvas.Children.Add($path)
-            
-            # Add to legend
+
             $legendItem = New-Object System.Windows.Controls.StackPanel
             $legendItem.Orientation = "Horizontal"
             $legendItem.Margin = New-Object System.Windows.Thickness(0, 0, 0, 5)
-            
+
             $colorBox = New-Object System.Windows.Shapes.Rectangle
             $colorBox.Width = 12
             $colorBox.Height = 12
             $colorBox.Fill = $path.Fill
             $colorBox.Margin = New-Object System.Windows.Thickness(0, 0, 5, 0)
-            
+
             $label = New-Object System.Windows.Controls.TextBlock
             $label.Text = "$($platform.Name) ($([Math]::Round($percentage * 100))%)"
             $label.Foreground = "White"
             $label.VerticalAlignment = "Center"
-            
+
             $legendItem.Children.Add($colorBox)
             $legendItem.Children.Add($label)
             $legendPanel.Children.Add($legendItem)
-            
-            # Update start angle for next segment
+
             $startAngle += $sweepAngle
         }
 
@@ -6225,7 +6547,7 @@ $StaleDevices30Card.Add_MouseLeftButtonUp({
             try {
                 Write-Log "Fetching 30-day stale devices..."
                 $thirtyDaysAgo = (Get-Date).AddDays(-30)
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($thirtyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($thirtyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $staleDevices = Get-GraphPagedResults -Uri $uri
                 
                 # Ensure we have a valid array
@@ -6266,7 +6588,7 @@ $StaleDevices90Card.Add_MouseLeftButtonUp({
             try {
                 Write-Log "Fetching 90-day stale devices..."
                 $ninetyDaysAgo = (Get-Date).AddDays(-90)
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($ninetyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($ninetyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $staleDevices = Get-GraphPagedResults -Uri $uri
                 
                 
@@ -6304,7 +6626,7 @@ $StaleDevices180Card.Add_MouseLeftButtonUp({
             try {
                 Write-Log "Fetching 180-day stale devices..."
                 $hundredEightyDaysAgo = (Get-Date).AddDays(-180)
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($hundredEightyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($hundredEightyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $staleDevices = Get-GraphPagedResults -Uri $uri
                 
                 
@@ -6341,7 +6663,7 @@ $PersonalDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
             try {
                 Write-Log "Fetching personal devices..."
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'personal'"
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'personal'&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $personalDevices = Get-GraphPagedResults -Uri $uri
                 
                 $deviceList = @()
@@ -6377,7 +6699,7 @@ $CorporateDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
             try {
                 Write-Log "Fetching corporate devices..."
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'company'"
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'company'&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $corporateDevices = Get-GraphPagedResults -Uri $uri
                 
                 $deviceList = @()
@@ -6414,9 +6736,9 @@ $IntuneDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
             try {
                 Write-Log "Fetching all Intune devices..."
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices"
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $intuneDevices = Get-GraphPagedResults -Uri $uri
-                
+
                 $deviceList = @()
                 foreach ($device in $intuneDevices) {
                     $deviceList += [PSCustomObject]@{
@@ -6450,9 +6772,9 @@ $AutopilotDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
             try {
                 Write-Log "Fetching all Autopilot devices..."
-                $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities"
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=displayName,serialNumber,lastContactedDateTime,model,manufacturer,userPrincipalName,systemFamily,managedDeviceOwnerType"
                 $autopilotDevices = Get-GraphPagedResults -Uri $uri
-                
+
                 $deviceList = @()
                 foreach ($device in $autopilotDevices) {
                     $deviceList += [PSCustomObject]@{
@@ -6486,7 +6808,7 @@ $EntraIDDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
             try {
                 Write-Log "Fetching all Entra ID devices..."
-                $uri = "https://graph.microsoft.com/v1.0/devices"
+                $uri = "https://graph.microsoft.com/beta/devices?`$select=displayName,operatingSystem,operatingSystemVersion,approximateLastSignInDateTime,deviceOwnership"
                 $entraDevices = Get-GraphPagedResults -Uri $uri
                 
                 $deviceList = @()
