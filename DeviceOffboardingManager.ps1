@@ -444,6 +444,7 @@ function ConvertTo-SafeDateTime {
             <Setter Property="Foreground" Value="#808080"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="Height" Value="40"/>
+            <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -545,6 +546,9 @@ function ConvertTo-SafeDateTime {
                                     Visibility="Collapsed"/>
                         </Grid>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#243447"/>
+                            </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="DisabledOverlay" Property="Visibility" Value="Visible"/>
                             </Trigger>
@@ -743,15 +747,26 @@ function ConvertTo-SafeDateTime {
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="200"/>
+            <ColumnDefinition x:Name="SidebarColumn" Width="200"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- Sidebar -->
         <Border Grid.Column="0" Background="#2D2D2D">
             <DockPanel>
+                <!-- Sidebar Toggle Button -->
+                <Button x:Name="SidebarToggleButton" DockPanel.Dock="Top"
+                        Content="&lt;&lt;" Background="#404040" Foreground="White"
+                        FontSize="14" FontWeight="Bold" Height="32"
+                        HorizontalAlignment="Right" Width="36"
+                        Margin="5,8,10,0" ToolTip="Collapse sidebar (Ctrl+B)"/>
+                <!-- Collapsed-mode connection status dot -->
+                <Ellipse x:Name="CollapsedStatusDot" DockPanel.Dock="Top"
+                         Width="12" Height="12" Fill="#FC8181"
+                         HorizontalAlignment="Center" Margin="0,10,0,0"
+                         Visibility="Collapsed" ToolTip="Disconnected"/>
                 <!-- Top: Connect Button + Tenant Info -->
-                <StackPanel DockPanel.Dock="Top" Margin="0,10,0,0">
+                <StackPanel x:Name="SidebarTopContent" DockPanel.Dock="Top" Margin="0,10,0,0">
                     <!-- Connect Button with Status Dot -->
                     <Border Margin="15,5,15,10"
                             Background="#0078D4"
@@ -847,7 +862,7 @@ function ConvertTo-SafeDateTime {
                 </StackPanel>
 
                 <!-- Bottom: Utility Buttons -->
-                <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,0">
+                <StackPanel x:Name="SidebarBottomContent" DockPanel.Dock="Bottom" Margin="0,0,0,0">
                     <!-- Version Info -->
                     <Border Background="#1B2A47"
                             Margin="15,5,15,5"
@@ -910,7 +925,7 @@ function ConvertTo-SafeDateTime {
                 </StackPanel>
 
                 <!-- Center: Navigation Menu -->
-                <StackPanel Margin="0,10,0,0">
+                <StackPanel x:Name="SidebarCenterContent" Margin="0,10,0,0">
                     <RadioButton x:Name="MenuHome"
                                 Content="Home"
                                 Style="{StaticResource MenuButtonStyle}"
@@ -956,7 +971,26 @@ function ConvertTo-SafeDateTime {
         </Border>
 
         <!-- Main Content Area -->
-        <Grid x:Name="MainContent" Grid.Column="1" Margin="20">
+        <Grid Grid.Column="1">
+            <!-- Toast Notification Overlay -->
+            <Border x:Name="ToastNotification" VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                    Margin="20,0,20,0" Panel.ZIndex="1000" Visibility="Collapsed" CornerRadius="0,0,6,6">
+                <Border.Effect>
+                    <DropShadowEffect ShadowDepth="2" Direction="270" Color="#000000" Opacity="0.3" BlurRadius="8"/>
+                </Border.Effect>
+                <Grid Margin="16,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ToastMessage" Foreground="White" FontSize="13"
+                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    <Button x:Name="ToastDismissButton" Grid.Column="1" Content="X"
+                            Background="Transparent" Foreground="White" FontSize="12"
+                            Width="24" Height="24" Padding="0" Margin="8,0,0,0" ToolTip="Dismiss"/>
+                </Grid>
+            </Border>
+            <Grid x:Name="MainContent" Margin="20">
             <!-- Home Page -->
             <Grid x:Name="HomePage" Visibility="Visible">
                 <Grid.RowDefinitions>
@@ -970,9 +1004,10 @@ function ConvertTo-SafeDateTime {
                               FontSize="32"
                               FontWeight="Bold"
                               Margin="0,0,0,10"/>
-                    <TextBlock Text="Streamline your device lifecycle management across Microsoft services"
+                    <TextBlock Text="Remove devices from Intune, Autopilot, Entra ID, and Defender for Endpoint in a single workflow"
                               FontSize="16"
-                              Opacity="0.7"/>
+                              Opacity="0.7"
+                              TextWrapping="Wrap"/>
 
                     <!-- Slim Preview Info Bar -->
                     <Border Background="#92400E"
@@ -986,7 +1021,7 @@ function ConvertTo-SafeDateTime {
                                   Height="16"
                                   Stretch="Uniform"
                                   Margin="0,0,8,0"/>
-                            <TextBlock Text="PREVIEW -- Device deletion operations are permanent and cannot be undone. Test in a non-production environment first."
+                            <TextBlock Text="PREVIEW - Offboarding operations may be permanent and cannot be undone. Test in a non-production environment first."
                                      Foreground="#FDE68A"
                                      FontSize="12"
                                      VerticalAlignment="Center"/>
@@ -1016,20 +1051,21 @@ function ConvertTo-SafeDateTime {
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-                            <TextBlock Text="Get Started"
+                            <TextBlock x:Name="HomeGetStartedTitle"
+                                     Text="Get Started"
                                      FontSize="20"
                                      FontWeight="SemiBold"
                                      Foreground="White"
                                      Margin="0,0,0,10"/>
-                            <TextBlock Grid.Row="1"
-                                     Text="Connect to Microsoft Graph to begin managing devices."
+                            <TextBlock x:Name="HomeGetStartedDesc" Grid.Row="1"
+                                     Text="Sign in with Microsoft Graph to search, audit, and offboard devices across all connected services."
                                      FontSize="13"
                                      Foreground="#A0AEC0"
                                      TextWrapping="Wrap"
                                      Margin="0,0,0,15"/>
                             <Button x:Name="HomeConnectButton"
                                     Grid.Row="2"
-                                    Content="Connect to MS Graph"
+                                    Content="Connect to Microsoft Graph"
                                     Height="36"
                                     Padding="16,0"
                                     Background="#0078D4"
@@ -1044,7 +1080,7 @@ function ConvertTo-SafeDateTime {
 
                     <!-- Key Features -->
                     <Border Grid.Column="1" Grid.Row="0"
-                            Background="#172A3A"
+                            Background="#1B2A47"
                             CornerRadius="8"
                             Margin="10,0,0,10">
                         <Grid Margin="20">
@@ -1058,18 +1094,26 @@ function ConvertTo-SafeDateTime {
                                      Foreground="White"
                                      Margin="0,0,0,15"/>
                             <StackPanel Grid.Row="1">
-                                <TextBlock Text="-- Real-time device monitoring"
-                                         FontSize="14"
-                                         Foreground="#A0AEC0"
-                                         Margin="0,0,0,8"/>
-                                <TextBlock Text="-- Bulk device operations"
-                                         FontSize="14"
-                                         Foreground="#A0AEC0"
-                                         Margin="0,0,0,8"/>
-                                <TextBlock Text="-- Automated management tasks"
-                                         FontSize="14"
-                                         Foreground="#A0AEC0"
-                                         Margin="0,0,0,8"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Ellipse Width="6" Height="6" Fill="#63B3ED" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBlock Text="Single and bulk device offboarding"
+                                             FontSize="14" Foreground="#A0AEC0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Ellipse Width="6" Height="6" Fill="#63B3ED" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBlock Text="CSV import for batch operations"
+                                             FontSize="14" Foreground="#A0AEC0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Ellipse Width="6" Height="6" Fill="#63B3ED" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBlock Text="Stale device and compliance reporting"
+                                             FontSize="14" Foreground="#A0AEC0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Ellipse Width="6" Height="6" Fill="#63B3ED" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBlock Text="Encryption key backup before removal"
+                                             FontSize="14" Foreground="#A0AEC0"/>
+                                </StackPanel>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -1096,25 +1140,25 @@ function ConvertTo-SafeDateTime {
                                 </Grid.ColumnDefinitions>
 
                                 <StackPanel Grid.Column="0">
-                                    <TextBlock Text="-- Intune"
-                                             FontSize="14"
-                                             Foreground="#A0AEC0"
-                                             Margin="0,0,10,8"/>
-                                    <TextBlock Text="-- Autopilot"
-                                             FontSize="14"
-                                             Foreground="#A0AEC0"
-                                             Margin="0,0,10,8"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,10,10">
+                                        <Ellipse Width="6" Height="6" Fill="#48BB78" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Text="Microsoft Intune" FontSize="14" Foreground="#A0AEC0"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,10,10">
+                                        <Ellipse Width="6" Height="6" Fill="#48BB78" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Text="Windows Autopilot" FontSize="14" Foreground="#A0AEC0"/>
+                                    </StackPanel>
                                 </StackPanel>
 
                                 <StackPanel Grid.Column="1">
-                                    <TextBlock Text="-- Entra ID"
-                                             FontSize="14"
-                                             Foreground="#A0AEC0"
-                                             Margin="0,0,0,8"/>
-                                    <TextBlock Text="-- Defender for Endpoint"
-                                             FontSize="14"
-                                             Foreground="#A0AEC0"
-                                             Margin="0,0,0,8"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Ellipse Width="6" Height="6" Fill="#48BB78" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Text="Microsoft Entra ID" FontSize="14" Foreground="#A0AEC0"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Ellipse Width="6" Height="6" Fill="#48BB78" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Text="Defender for Endpoint" FontSize="14" Foreground="#A0AEC0"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </Grid>
                         </Grid>
@@ -1122,7 +1166,7 @@ function ConvertTo-SafeDateTime {
 
                     <!-- Quick Navigation -->
                     <Border Grid.Column="1" Grid.Row="1"
-                            Background="#1A365D"
+                            Background="#2D3748"
                             CornerRadius="8"
                             Margin="10,10,0,0">
                         <Grid Margin="20">
@@ -1140,38 +1184,38 @@ function ConvertTo-SafeDateTime {
                                         Content="Dashboard"
                                         Height="32"
                                         Padding="12,0"
-                                        Background="#2D3748"
+                                        Background="#404040"
                                         Foreground="White"
                                         BorderThickness="0"
                                         Margin="0,0,0,8"
                                         HorizontalAlignment="Stretch"
                                         IsEnabled="False"
                                         Cursor="Hand"
-                                        ToolTip="View device statistics and analytics"/>
+                                        ToolTip="View device statistics and analytics (connect first)"/>
                                 <Button x:Name="HomeNavDeviceMgmt"
-                                        Content="Device Offboarding"
+                                        Content="Device Offboarding (Ctrl+K)"
                                         Height="32"
                                         Padding="12,0"
-                                        Background="#2D3748"
+                                        Background="#404040"
                                         Foreground="White"
                                         BorderThickness="0"
                                         Margin="0,0,0,8"
                                         HorizontalAlignment="Stretch"
                                         IsEnabled="False"
                                         Cursor="Hand"
-                                        ToolTip="Search and offboard devices"/>
+                                        ToolTip="Search and offboard devices (connect first)"/>
                                 <Button x:Name="HomeNavPlaybooks"
                                         Content="Playbooks"
                                         Height="32"
                                         Padding="12,0"
-                                        Background="#2D3748"
+                                        Background="#404040"
                                         Foreground="White"
                                         BorderThickness="0"
                                         Margin="0,0,0,8"
                                         HorizontalAlignment="Stretch"
                                         IsEnabled="False"
                                         Cursor="Hand"
-                                        ToolTip="Run automated reports and tasks"/>
+                                        ToolTip="Run automated reports and tasks (connect first)"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -1180,6 +1224,8 @@ function ConvertTo-SafeDateTime {
 
             <!-- Dashboard Page -->
             <Grid x:Name="DashboardPage">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -1193,6 +1239,7 @@ function ConvertTo-SafeDateTime {
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="Dashboard"
@@ -1200,12 +1247,20 @@ function ConvertTo-SafeDateTime {
                                  FontWeight="Bold"
                                  Foreground="#323130"
                                  Margin="0,0,0,4"/>
-                        <TextBlock Text="Overview of your device environment"
-                                 FontSize="14"
-                                 Opacity="0.7"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Device inventory and health at a glance"
+                                     FontSize="14"
+                                     Opacity="0.7"/>
+                            <TextBlock x:Name="DashboardLastRefreshed"
+                                     Text=""
+                                     FontSize="12"
+                                     Foreground="#A0AEC0"
+                                     VerticalAlignment="Center"
+                                     Margin="16,0,0,0"/>
+                        </StackPanel>
                     </StackPanel>
                     <Button x:Name="DashboardRefreshButton"
-                            Grid.Column="1"
+                            Grid.Column="2"
                             Content="Refresh"
                             Height="32"
                             Padding="16,0"
@@ -1214,13 +1269,14 @@ function ConvertTo-SafeDateTime {
                             BorderThickness="0"
                             VerticalAlignment="Top"
                             Cursor="Hand"
-                            ToolTip="Refresh dashboard statistics"/>
+                            ToolTip="Refresh dashboard statistics (F5)"/>
                 </Grid>
 
                 <!-- Platform Filter -->
                 <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="20,10,20,4" VerticalAlignment="Center">
                     <TextBlock Text="Platform:" Foreground="#A0AEC0" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <ComboBox x:Name="DashboardPlatformFilter" Width="160" SelectedIndex="0">
+                    <ComboBox x:Name="DashboardPlatformFilter" Width="160" SelectedIndex="0"
+                              ToolTip="Filter Intune device counts by operating system platform">
                         <ComboBoxItem Content="All Platforms"/>
                         <ComboBoxItem Content="Windows"/>
                         <ComboBoxItem Content="macOS"/>
@@ -1232,7 +1288,8 @@ function ConvertTo-SafeDateTime {
 
                 <!-- Top Row Statistics -->
                 <UniformGrid Grid.Row="2" Rows="1" Margin="20,10,20,10">
-                    <Border x:Name="IntuneDevicesCard" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Cursor="Hand">
+                    <Border x:Name="IntuneDevicesCard" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Cursor="Hand"
+                            ToolTip="Click to view all Intune devices">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Style.Triggers>
@@ -1259,19 +1316,20 @@ function ConvertTo-SafeDateTime {
                             </StackPanel>
                             <TextBlock Grid.Row="1"
                                      x:Name="IntuneDevicesCount"
-                                     Text="0"
+                                     Text="--"
                                      Foreground="White"
                                      FontSize="36"
                                      FontWeight="Bold"
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
-                                     Text="Total Managed Devices"
+                                     Text="Managed by Intune"
                                      Foreground="#A0AEC0"
                                      FontSize="12"/>
                         </Grid>
                     </Border>
 
-                    <Border x:Name="AutopilotDevicesCard" Background="#1B2A47" Margin="10,0" CornerRadius="8" Cursor="Hand">
+                    <Border x:Name="AutopilotDevicesCard" Background="#1B2A47" Margin="10,0" CornerRadius="8" Cursor="Hand"
+                            ToolTip="Click to view all Autopilot devices">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Style.Triggers>
@@ -1298,19 +1356,20 @@ function ConvertTo-SafeDateTime {
                             </StackPanel>
                             <TextBlock Grid.Row="1"
                                      x:Name="AutopilotDevicesCount"
-                                     Text="0"
+                                     Text="--"
                                      Foreground="White"
                                      FontSize="36"
                                      FontWeight="Bold"
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
-                                     Text="Total Registered Devices"
+                                     Text="Registered in Autopilot"
                                      Foreground="#A0AEC0"
                                      FontSize="12"/>
                         </Grid>
                     </Border>
 
-                    <Border x:Name="EntraIDDevicesCard" Background="#1B2A47" Margin="10,0,0,0" CornerRadius="8" Cursor="Hand">
+                    <Border x:Name="EntraIDDevicesCard" Background="#1B2A47" Margin="10,0,0,0" CornerRadius="8" Cursor="Hand"
+                            ToolTip="Click to view all Entra ID devices">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Style.Triggers>
@@ -1329,7 +1388,7 @@ function ConvertTo-SafeDateTime {
                             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
                                 <Path Data="M12,5.5A3.5,3.5 0 0,1 15.5,9A3.5,3.5 0 0,1 12,12.5A3.5,3.5 0 0,1 8.5,9A3.5,3.5 0 0,1 12,5.5M5,8C5.56,8 6.08,8.15 6.53,8.42C6.38,9.85 6.8,11.27 7.66,12.38C7.16,13.34 6.16,14 5,14A3,3 0 0,1 2,11A3,3 0 0,1 5,8M19,8A3,3 0 0,1 22,11A3,3 0 0,1 19,14C17.84,14 16.84,13.34 16.34,12.38C17.2,11.27 17.62,9.85 17.47,8.42C17.92,8.15 18.44,8 19,8M5.5,18.25C5.5,16.18 8.41,14.5 12,14.5C15.59,14.5 18.5,16.18 18.5,18.25V20H5.5V18.25M0,20V18.5C0,17.11 1.89,15.94 4.45,15.6C3.86,16.28 3.5,17.22 3.5,18.25V20H0M24,20H20.5V18.25C20.5,17.22 20.14,16.28 19.55,15.6C22.11,15.94 24,17.11 24,18.5V20Z"
                                       Fill="#ED64A6" Width="24" Height="24" Stretch="Uniform"/>
-                                <TextBlock Text="EntraID Devices"
+                                <TextBlock Text="Entra ID Devices"
                                          Foreground="#A0AEC0"
                                          FontSize="14"
                                          Margin="12,0,0,0"
@@ -1337,13 +1396,13 @@ function ConvertTo-SafeDateTime {
                             </StackPanel>
                             <TextBlock Grid.Row="1"
                                      x:Name="EntraIDDevicesCount"
-                                     Text="0"
+                                     Text="--"
                                      Foreground="White"
                                      FontSize="36"
                                      FontWeight="Bold"
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
-                                     Text="Total Entra ID Devices"
+                                     Text="Registered in Entra ID"
                                      Foreground="#A0AEC0"
                                      FontSize="12"/>
                         </Grid>
@@ -1352,7 +1411,8 @@ function ConvertTo-SafeDateTime {
 
                 <!-- Middle Row - Stale Devices -->
                 <UniformGrid Grid.Row="3" Rows="1" Margin="20,10,20,10">
-                    <Border x:Name="StaleDevices30Card" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Cursor="Hand">
+                    <Border x:Name="StaleDevices30Card" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Cursor="Hand"
+                            ToolTip="Click to view devices not synced in 30+ days">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Style.Triggers>
@@ -1380,13 +1440,13 @@ function ConvertTo-SafeDateTime {
                             </StackPanel>
                             <TextBlock Grid.Row="1"
                                      x:Name="StaleDevices30Count"
-                                     Text="0"
+                                     Text="--"
                                      Foreground="#F6AD55"
                                      FontSize="36"
                                      FontWeight="Bold"
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
-                                     Text="Devices Not Synced"
+                                     Text="Not synced in 30+ days"
                                      Foreground="#A0AEC0"
                                      FontSize="12"/>
                             <ProgressBar x:Name="StaleDevices30Progress"
@@ -1399,7 +1459,8 @@ function ConvertTo-SafeDateTime {
                         </Grid>
                     </Border>
 
-                    <Border x:Name="StaleDevices90Card" Background="#1B2A47" Margin="10,0" CornerRadius="8" Cursor="Hand">
+                    <Border x:Name="StaleDevices90Card" Background="#1B2A47" Margin="10,0" CornerRadius="8" Cursor="Hand"
+                            ToolTip="Click to view devices not synced in 90+ days">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Style.Triggers>
@@ -1427,13 +1488,13 @@ function ConvertTo-SafeDateTime {
                             </StackPanel>
                             <TextBlock Grid.Row="1"
                                      x:Name="StaleDevices90Count"
-                                     Text="0"
+                                     Text="--"
                                      Foreground="#FC8181"
                                      FontSize="36"
                                      FontWeight="Bold"
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
-                                     Text="Devices Not Synced"
+                                     Text="Not synced in 90+ days"
                                      Foreground="#A0AEC0"
                                      FontSize="12"/>
                             <ProgressBar x:Name="StaleDevices90Progress"
@@ -1446,7 +1507,8 @@ function ConvertTo-SafeDateTime {
                         </Grid>
                     </Border>
 
-                    <Border x:Name="StaleDevices180Card" Background="#1B2A47" Margin="10,0,0,0" CornerRadius="8" Cursor="Hand">
+                    <Border x:Name="StaleDevices180Card" Background="#1B2A47" Margin="10,0,0,0" CornerRadius="8" Cursor="Hand"
+                            ToolTip="Click to view devices not synced in 180+ days">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Style.Triggers>
@@ -1474,13 +1536,13 @@ function ConvertTo-SafeDateTime {
                             </StackPanel>
                             <TextBlock Grid.Row="1"
                                      x:Name="StaleDevices180Count"
-                                     Text="0"
+                                     Text="--"
                                      Foreground="#F56565"
                                      FontSize="36"
                                      FontWeight="Bold"
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
-                                     Text="Devices Not Synced"
+                                     Text="Not synced in 180+ days"
                                      Foreground="#A0AEC0"
                                      FontSize="12"/>
                             <ProgressBar x:Name="StaleDevices180Progress"
@@ -1503,7 +1565,8 @@ function ConvertTo-SafeDateTime {
                     </Grid.ColumnDefinitions>
 
                     <!-- Personal Devices -->
-                    <Border x:Name="PersonalDevicesCard" Grid.Column="0" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Height="220" Cursor="Hand">
+                    <Border x:Name="PersonalDevicesCard" Grid.Column="0" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Height="220" Cursor="Hand"
+                            ToolTip="Click to view all personal (BYOD) devices">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Style.Triggers>
@@ -1531,7 +1594,7 @@ function ConvertTo-SafeDateTime {
                             </StackPanel>
                             <TextBlock Grid.Row="1"
                                      x:Name="PersonalDevicesCount"
-                                     Text="0"
+                                     Text="--"
                                      Foreground="#9F7AEA"
                                      FontSize="36"
                                      FontWeight="Bold"
@@ -1551,7 +1614,8 @@ function ConvertTo-SafeDateTime {
                     </Border>
 
                     <!-- Corporate Devices -->
-                    <Border x:Name="CorporateDevicesCard" Grid.Column="1" Background="#1B2A47" Margin="10,0" CornerRadius="8" Height="220" Cursor="Hand">
+                    <Border x:Name="CorporateDevicesCard" Grid.Column="1" Background="#1B2A47" Margin="10,0" CornerRadius="8" Height="220" Cursor="Hand"
+                            ToolTip="Click to view all corporate-owned devices">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Style.Triggers>
@@ -1579,7 +1643,7 @@ function ConvertTo-SafeDateTime {
                             </StackPanel>
                             <TextBlock Grid.Row="1"
                                      x:Name="CorporateDevicesCount"
-                                     Text="0"
+                                     Text="--"
                                      Foreground="#4FD1C5"
                                      FontSize="36"
                                      FontWeight="Bold"
@@ -1637,6 +1701,8 @@ function ConvertTo-SafeDateTime {
                         </Grid>
                     </Border>
                 </Grid>
+                </Grid>
+                </ScrollViewer>
             </Grid>
 
             <!-- Device Management Page -->
@@ -1709,7 +1775,8 @@ function ConvertTo-SafeDateTime {
                     <Button x:Name="SearchButton"
                             Grid.Column="3"
                             Content="Search"
-                            Margin="0,0,8,0"/>
+                            Margin="0,0,8,0"
+                            ToolTip="Search for devices (Enter)"/>
                     <Button x:Name="FilterToggleButton"
                             Grid.Column="4"
                             Content="Filter"
@@ -1730,7 +1797,7 @@ function ConvertTo-SafeDateTime {
                             Foreground="White"
                             BorderThickness="0"
                             Cursor="Hand"
-                            ToolTip="Clear search results and filters"/>
+                            ToolTip="Clear search results and filters (Escape)"/>
                 </Grid>
 
                 <!-- Filter Row -->
@@ -1738,26 +1805,33 @@ function ConvertTo-SafeDateTime {
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="50"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="140"/>
+                        <ColumnDefinition Width="120"/>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="100"/>
                         <ColumnDefinition Width="70"/>
                     </Grid.ColumnDefinitions>
-                    <TextBox x:Name="FilterDeviceName" Grid.Column="1" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
-                    <TextBox x:Name="FilterSerialNumber" Grid.Column="2" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
-                    <TextBox x:Name="FilterOS" Grid.Column="3" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
-                    <TextBox x:Name="FilterPrimaryUser" Grid.Column="4" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
-                    <TextBox x:Name="FilterCompliance" Grid.Column="8" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
+                    <TextBox x:Name="FilterDeviceName" Grid.Column="1" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center" ToolTip="Filter by device name"/>
+                    <TextBox x:Name="FilterSerialNumber" Grid.Column="2" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center" ToolTip="Filter by serial number"/>
+                    <TextBox x:Name="FilterOS" Grid.Column="3" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center" ToolTip="Filter by operating system"/>
+                    <TextBox x:Name="FilterPrimaryUser" Grid.Column="4" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center" ToolTip="Filter by primary user"/>
+                    <TextBox x:Name="FilterCompliance" Grid.Column="8" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center" ToolTip="Filter by compliance state"/>
                 </Grid>
 
-                <!-- Results Grid -->
+                <!-- Results Grid with empty state -->
+                <Grid Grid.Row="4" Margin="0,0,0,15">
+                <TextBlock x:Name="SearchEmptyState"
+                         Text="Search for devices using the controls above to get started"
+                         Foreground="#A0AEC0"
+                         FontSize="14"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center"
+                         Margin="0,40,0,0"/>
                 <DataGrid x:Name="SearchResultsDataGrid"
-                          Grid.Row="4"
-                          Margin="0,0,0,15"
+                          Visibility="Collapsed"
                           AutoGenerateColumns="False"
                           IsReadOnly="False"
                           HeadersVisibility="Column"
@@ -1781,7 +1855,7 @@ function ConvertTo-SafeDateTime {
                                                   Width="140"
                                                   IsReadOnly="True"/>
                         <DataGridTextColumn Binding="{Binding OperatingSystem}"
-                                                  Header="OS"
+                                                  Header="Operating System"
                                                   Width="120"
                                                   IsReadOnly="True"/>
                         <DataGridTextColumn Binding="{Binding PrimaryUser}"
@@ -1808,12 +1882,14 @@ function ConvertTo-SafeDateTime {
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <TextBlock Text="View" Foreground="#0078D4" Cursor="Hand" Tag="{Binding EntraDeviceId}"
-                                               TextDecorations="Underline" FontSize="12"/>
+                                               TextDecorations="Underline" FontSize="12"
+                                               ToolTip="View Entra ID group memberships"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
                     </DataGrid.Columns>
                 </DataGrid>
+                </Grid>
 
                 <!-- Status Section -->
                 <UniformGrid Grid.Row="5"
@@ -2008,7 +2084,7 @@ function ConvertTo-SafeDateTime {
                                  VerticalAlignment="Center"
                                  Margin="0,0,12,0"/>
                         <Button x:Name="OffboardButton"
-                                Content="Offboard device(s)"
+                                Content="Offboard Devices"
                             Height="40"
                             Padding="20,0"
                             Background="#DC2626"
@@ -2071,9 +2147,10 @@ function ConvertTo-SafeDateTime {
                              Foreground="#323130"
                              Margin="0,0,0,10"/>
                     <TextBlock Grid.Row="1"
-                             Text="Automated device management tasks and reports"
+                             Text="Pre-built reports for device compliance, inventory, and security audits"
                              FontSize="16"
-                             Opacity="0.7"/>
+                             Opacity="0.7"
+                             TextWrapping="Wrap"/>
                 </Grid>
 
                 <ScrollViewer Grid.Row="1"
@@ -2081,8 +2158,8 @@ function ConvertTo-SafeDateTime {
                              Margin="20,0,20,20"
                              VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <!-- Device Compliance -->
-                        <TextBlock Text="Device Compliance"
+                        <!-- Enrollment Discrepancies -->
+                        <TextBlock Text="Enrollment Discrepancies"
                                  FontSize="18"
                                  FontWeight="SemiBold"
                                  Foreground="#323130"
@@ -2198,12 +2275,14 @@ function ConvertTo-SafeDateTime {
                         </Grid.ColumnDefinitions>
                         <Button Grid.Column="0"
                                 x:Name="BackToPlaybooksButton"
-                                Content="← Back to Playbooks"
+                                Content="Back to Playbooks"
                                 Height="32"
                                 Padding="12,0"
                                 Background="#F0F0F0"
                                 Foreground="#2D3748"
-                                BorderThickness="0">
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                ToolTip="Return to playbook list">
                             <Button.Resources>
                                 <Style TargetType="Border">
                                     <Setter Property="CornerRadius" Value="4"/>
@@ -2217,7 +2296,9 @@ function ConvertTo-SafeDateTime {
                                 Padding="12,0"
                                 Background="#0078D4"
                                 Foreground="White"
-                                BorderThickness="0">
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                ToolTip="Export results to a CSV file">
                             <Button.Resources>
                                 <Style TargetType="Border">
                                     <Setter Property="CornerRadius" Value="4"/>
@@ -2228,7 +2309,7 @@ function ConvertTo-SafeDateTime {
                     <!-- Results Header -->
                     <TextBlock Grid.Row="1"
                               x:Name="PlaybookResultsHeader"
-                              Text="Devices in Autopilot but not in Intune"
+                              Text=""
                               FontSize="20"
                               FontWeight="SemiBold"
                               Margin="20,0,20,10"/>
@@ -2245,7 +2326,7 @@ function ConvertTo-SafeDateTime {
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Device Name"
                                               Binding="{Binding DeviceName}"
-                                              Width="*"/>
+                                              Width="2*"/>
                             <DataGridTextColumn Header="Serial Number"
                                               Binding="{Binding SerialNumber}"
                                               Width="*"/>
@@ -2254,7 +2335,7 @@ function ConvertTo-SafeDateTime {
                                               Width="*"/>
                             <DataGridTextColumn Header="Primary User"
                                               Binding="{Binding PrimaryUser}"
-                                              Width="*"/>
+                                              Width="1.5*"/>
                             <DataGridTextColumn Header="Last Contact"
                                               Binding="{Binding AutopilotLastContact}"
                                               Width="*"/>
@@ -2262,6 +2343,7 @@ function ConvertTo-SafeDateTime {
                     </DataGrid>
                 </Grid>
             </Grid>
+        </Grid>
         </Grid>
     </Grid>
 </Window>
@@ -2299,7 +2381,9 @@ function ConvertTo-SafeDateTime {
                     Foreground="#2D3748"
                     BorderThickness="0"
                     HorizontalAlignment="Right"
-                    Margin="0,24,0,0"/>
+                    Margin="0,24,0,0"
+                    IsCancel="True"
+                    Cursor="Hand"/>
 
             <!-- Changelog Content -->
             <ScrollViewer VerticalScrollBarVisibility="Auto"
@@ -2383,7 +2467,9 @@ function ConvertTo-SafeDateTime {
                         Height="40"
                         Background="#F0F0F0"
                         Foreground="#2D3748"
-                        BorderThickness="0"/>
+                        BorderThickness="0"
+                        IsCancel="True"
+                        Cursor="Hand"/>
             </StackPanel>
 
             <!-- Scrollable Content -->
@@ -2421,7 +2507,7 @@ function ConvertTo-SafeDateTime {
 <Window 
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Authentication" Height="500" Width="650"
+    Title="Connect to Microsoft Graph" Height="500" Width="650"
     WindowStartupLocation="CenterScreen"
     Background="#F8F9FA">
     
@@ -2581,7 +2667,7 @@ function ConvertTo-SafeDateTime {
                           FontSize="24" 
                           FontWeight="SemiBold" 
                           Foreground="#1A202C"/>
-                <TextBlock Text="Choose your preferred authentication method to connect to Microsoft Graph API"
+                <TextBlock Text="Select an authentication method to connect to Microsoft Graph"
                           Foreground="#4A5568"
                           FontSize="14"
                           Margin="0,8,0,0"/>
@@ -2592,15 +2678,19 @@ function ConvertTo-SafeDateTime {
                        Orientation="Horizontal" 
                        HorizontalAlignment="Right"
                        Margin="0,24,0,0">
-                <Button x:Name="CancelAuthButton" 
-                        Content="Cancel" 
+                <Button x:Name="CancelAuthButton"
+                        Content="Cancel"
                         Style="{StaticResource SecondaryButtonStyle}"
-                        Width="120" 
-                        Margin="0,0,12,0"/>
-                <Button x:Name="ConnectButton" 
-                        Content="Connect" 
+                        Width="120"
+                        Margin="0,0,12,0"
+                        IsCancel="True"
+                        Cursor="Hand"/>
+                <Button x:Name="ConnectButton"
+                        Content="Connect"
                         Style="{StaticResource AuthButtonStyle}"
-                        Width="120"/>
+                        Width="120"
+                        IsDefault="True"
+                        Cursor="Hand"/>
             </StackPanel>
 
             <!-- Scrollable Content -->
@@ -2608,9 +2698,9 @@ function ConvertTo-SafeDateTime {
                          HorizontalScrollBarVisibility="Disabled"
                          Padding="0,0,16,0">
                 <StackPanel Margin="0,0,8,0">
-                    <RadioButton x:Name="InteractiveAuth" 
+                    <RadioButton x:Name="InteractiveAuth"
                                 Style="{StaticResource AuthRadioButtonStyle}"
-                                Content="Interactive Login (Admin User)" 
+                                Content="Interactive Login (Browser)"
                                 IsChecked="True"/>
                     
                     <RadioButton x:Name="CertificateAuth" 
@@ -2662,16 +2752,20 @@ function ConvertTo-SafeDateTime {
                         <!-- Import and Save Buttons -->
                         <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                             <Button x:Name="SaveCertButton"
-                                    Content="Save Config"
+                                    Content="Save Locally"
                                     Style="{StaticResource SecondaryButtonStyle}"
                                     Height="32"
                                     Width="120"
-                                    Margin="0,0,8,0"/>
+                                    Margin="0,0,8,0"
+                                    Cursor="Hand"
+                                    ToolTip="Save configuration to disk for auto-loading next time"/>
                             <Button x:Name="ImportCertButton"
                                     Content="Import"
                                     Style="{StaticResource SecondaryButtonStyle}"
                                     Height="32"
-                                    Width="120"/>
+                                    Width="120"
+                                    Cursor="Hand"
+                                    ToolTip="Import configuration from a JSON file"/>
                         </StackPanel>
 
                         <!-- Help Text -->
@@ -2735,16 +2829,20 @@ function ConvertTo-SafeDateTime {
                         <!-- Import and Save Buttons -->
                         <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                             <Button x:Name="SaveSecretButton"
-                                    Content="Save Config"
+                                    Content="Save Locally"
                                     Style="{StaticResource SecondaryButtonStyle}"
                                     Height="32"
                                     Width="120"
-                                    Margin="0,0,8,0"/>
+                                    Margin="0,0,8,0"
+                                    Cursor="Hand"
+                                    ToolTip="Save App ID and Tenant ID to disk (secret is not stored)"/>
                             <Button x:Name="ImportSecretButton"
                                     Content="Import"
                                     Style="{StaticResource SecondaryButtonStyle}"
                                     Height="32"
-                                    Width="120"/>
+                                    Width="120"
+                                    Cursor="Hand"
+                                    ToolTip="Import configuration from a JSON file"/>
                         </StackPanel>
 
                         <!-- Help Text -->
@@ -2881,16 +2979,18 @@ function ConvertTo-SafeDateTime {
                        Orientation="Horizontal" 
                        HorizontalAlignment="Right"
                        Margin="0,24,0,0">
-                <Button x:Name="CancelButton" 
-                        Content="Cancel" 
+                <Button x:Name="CancelButton"
+                        Content="Cancel"
                         Style="{StaticResource BulkImportSecondaryButtonStyle}"
-                        Width="120" 
-                        Margin="0,0,12,0"/>
-                <Button x:Name="ImportButton" 
-                        Content="Import Devices" 
+                        Width="120"
+                        Margin="0,0,12,0"
+                        IsCancel="True"/>
+                <Button x:Name="ImportButton"
+                        Content="Import Devices"
                         Style="{StaticResource BulkImportButtonStyle}"
                         Width="140"
-                        IsEnabled="False"/>
+                        IsEnabled="False"
+                        ToolTip="Import the listed devices and trigger a search"/>
             </StackPanel>
 
             <!-- Scrollable Content -->
@@ -2906,7 +3006,7 @@ function ConvertTo-SafeDateTime {
                             Padding="16" 
                             Margin="0,0,0,16">
                         <StackPanel>
-                            <TextBlock Text="CSV Template" 
+                            <TextBlock Text="File Template" 
                                       FontWeight="SemiBold" 
                                       FontSize="14" 
                                       Margin="0,0,0,8"/>
@@ -2934,11 +3034,12 @@ function ConvertTo-SafeDateTime {
                                     <Run Text="0987654321"/>
                                 </TextBlock>
                             </Border>
-                            <Button x:Name="DownloadTemplateButton" 
-                                    Content="Download Template" 
-                                    Style="{StaticResource BulkImportButtonStyle}" 
-                                    Width="180" 
-                                    HorizontalAlignment="Left"/>
+                            <Button x:Name="DownloadTemplateButton"
+                                    Content="Save Template"
+                                    Style="{StaticResource BulkImportButtonStyle}"
+                                    Width="180"
+                                    HorizontalAlignment="Left"
+                                    ToolTip="Save a sample CSV template to disk"/>
                         </StackPanel>
                     </Border>
 
@@ -2959,17 +3060,18 @@ function ConvertTo-SafeDateTime {
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBox x:Name="FilePathTextBox" 
-                                        Grid.Column="0" 
-                                        IsReadOnly="True" 
-                                        Style="{StaticResource BulkImportTextBoxStyle}" 
+                                <TextBox x:Name="FilePathTextBox"
+                                        Grid.Column="0"
+                                        IsReadOnly="True"
+                                        Style="{StaticResource BulkImportTextBoxStyle}"
                                         Margin="0,0,8,0"
-                                        Text="No file selected"/>
-                                <Button x:Name="BrowseFileButton" 
-                                        Grid.Column="1" 
-                                        Content="Browse..." 
-                                        Style="{StaticResource BulkImportSecondaryButtonStyle}" 
-                                        Width="100"/>
+                                        Text="Click Browse to select a CSV or TXT file"/>
+                                <Button x:Name="BrowseFileButton"
+                                        Grid.Column="1"
+                                        Content="Browse..."
+                                        Style="{StaticResource BulkImportSecondaryButtonStyle}"
+                                        Width="100"
+                                        ToolTip="Select a CSV or TXT file with one device per line"/>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -3158,6 +3260,13 @@ function Show-AuthenticationDialog {
             $certificateInputs.Visibility = 'Collapsed'
             $secretInputs.Visibility = 'Collapsed'
         })
+
+    # Auto-select auth method if saved config exists
+    if (Test-Path $certConfigPath) {
+        $certificateAuth.IsChecked = $true
+    } elseif (Test-Path $secretConfigPath) {
+        $secretAuth.IsChecked = $true
+    }
 
     # Add import button handlers
     $importCertButton.Add_Click({
@@ -3459,6 +3568,7 @@ LAPTOP-XYZ789
             if ($openFileDialog.ShowDialog() -eq 'OK') {
                 $filePath = $openFileDialog.FileName
                 $filePathTextBox.Text = [System.IO.Path]::GetFileName($filePath)
+                $filePathTextBox.ToolTip = $filePath
             
                 # Reset UI
                 $errorSection.Visibility = 'Collapsed'
@@ -3669,12 +3779,7 @@ function Connect-ToGraph {
         if ($missingPermissions.Count -gt 0) {
             $missingList = $missingPermissions -join ", "
             Write-Log "Warning: Missing permissions: $missingList"
-            [System.Windows.MessageBox]::Show(
-                "The following permissions are missing: `n$missingList`n`nThe application may not function correctly.",
-                "Missing Permissions",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Warning
-            )
+            Show-Toast -Message "Missing permissions: $missingList" -Type "info" -DurationSeconds 6
         }
 
         Write-Log "Successfully connected to Microsoft Graph"
@@ -3682,12 +3787,7 @@ function Connect-ToGraph {
     }
     catch {
         Write-Log "Failed to connect to Microsoft Graph: $_"
-        [System.Windows.MessageBox]::Show(
-            "Failed to connect to Microsoft Graph: $_",
-            "Connection Error",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Error
-        )
+        Show-Toast -Message "Failed to connect to Microsoft Graph: $_" -Type "error" -DurationSeconds 8
         
         # Reset UI state on connection failure
         $script:connectionFailed = $true  # Add this flag to track connection failure
@@ -3776,14 +3876,8 @@ function Export-DeviceListToCSV {
             $DeviceList | Export-Csv -Path $exportPath -NoTypeInformation -Force
             
             Write-Log "Exported $($DeviceList.Count) devices to: $exportPath"
-            
-            # Show success message
-            [System.Windows.MessageBox]::Show(
-                "Successfully exported $($DeviceList.Count) devices to:`n$exportPath",
-                "Export Successful",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Information
-            )
+
+            Show-Toast -Message "Successfully exported $($DeviceList.Count) devices to: $exportPath" -Type "success"
             
             return $true
         }
@@ -3791,12 +3885,7 @@ function Export-DeviceListToCSV {
     }
     catch {
         Write-Log "Error exporting device list: $_"
-        [System.Windows.MessageBox]::Show(
-            "Error exporting device list: $_",
-            "Export Error",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Error
-        )
+        Show-Toast -Message "Error exporting device list: $_" -Type "error" -DurationSeconds 6
         return $false
     }
 }
@@ -3954,22 +4043,12 @@ $deviceRows
 
         [System.IO.File]::WriteAllText($exportPath, $html)
         Write-Log "Exported offboarding report to: $exportPath" -Severity "AUDIT"
-        [System.Windows.MessageBox]::Show(
-            "Report exported successfully to:`n$exportPath",
-            "Export Successful",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Information
-        )
+        Show-Toast -Message "Report exported successfully to: $exportPath" -Type "success"
         return $true
     }
     catch {
         Write-Log "Error exporting offboarding report: $_" -Severity "ERROR"
-        [System.Windows.MessageBox]::Show(
-            "Error exporting report: $_",
-            "Export Error",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Error
-        )
+        Show-Toast -Message "Error exporting report: $_" -Type "error" -DurationSeconds 6
         return $false
     }
 }
@@ -4398,13 +4477,17 @@ function Invoke-DeviceSearch {
             $SearchResultsDataGrid.ItemsSource = $searchResults
             $script:LastCheckedIndex = -1
             $ResultCountText.Text = "$($searchResults.Count) device(s) found"
+            $SearchEmptyState.Visibility = 'Collapsed'
+            $SearchResultsDataGrid.Visibility = 'Visible'
         }
         else {
             $script:AllSearchResults = $null
             $SearchResultsDataGrid.ItemsSource = $null
             $FilterRow.Visibility = 'Collapsed'
             $ResultCountText.Text = ""
-            [System.Windows.MessageBox]::Show("No devices found matching the search criteria.")
+            $SearchEmptyState.Visibility = 'Visible'
+            $SearchResultsDataGrid.Visibility = 'Collapsed'
+            Show-Toast -Message "No devices found matching the search criteria." -Type "info"
         }
 
         # Ensure Offboard button and Export Selected button are disabled until selection
@@ -4414,7 +4497,7 @@ function Invoke-DeviceSearch {
     }
     catch {
         Write-Log "Error occurred during search operation. Exception: $_"
-        [System.Windows.MessageBox]::Show("Error in search operation. Please ensure the Serial Number or Device Name is valid.")
+        Show-Toast -Message "Error in search operation. Please ensure the Serial Number or Device Name is valid." -Type "error" -DurationSeconds 6
     }
 }
 
@@ -4427,6 +4510,109 @@ $SearchInputText = $Window.FindName("SearchInputText")
 $bulk_import_button = $Window.FindName('bulk_import_button')
 $Dropdown = $Window.FindName("dropdown")
 $Disconnect = $Window.FindName('disconnect_button')
+
+# Toast notification controls
+$ToastNotification = $Window.FindName('ToastNotification')
+$ToastMessage = $Window.FindName('ToastMessage')
+$ToastDismissButton = $Window.FindName('ToastDismissButton')
+
+# Sidebar controls
+$SidebarToggleButton = $Window.FindName('SidebarToggleButton')
+$SidebarTopContent = $Window.FindName('SidebarTopContent')
+$SidebarBottomContent = $Window.FindName('SidebarBottomContent')
+$SidebarCenterContent = $Window.FindName('SidebarCenterContent')
+$SidebarColumn = $Window.Content.ColumnDefinitions[0]
+$CollapsedStatusDot = $Window.FindName('CollapsedStatusDot')
+$script:SidebarCollapsed = $false
+
+$script:ToastGeneration = 0
+
+function Hide-Toast {
+    $script:ToastGeneration++
+    $gen = $script:ToastGeneration
+    if ($script:ToastTimer) { $script:ToastTimer.Stop() }
+    # Clear current animation hold and read actual position
+    $ToastNotification.RenderTransform.BeginAnimation(
+        [System.Windows.Media.TranslateTransform]::YProperty, $null)
+    $currentY = $ToastNotification.RenderTransform.Y
+    # Slide out animation
+    $slideOut = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $slideOut.From = $currentY
+    $slideOut.To = -50
+    $slideOut.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(200))
+    $slideOut.EasingFunction = New-Object System.Windows.Media.Animation.QuadraticEase
+    $slideOut.EasingFunction.EasingMode = 'EaseIn'
+    $slideOut.Add_Completed({ if ($script:ToastGeneration -eq $gen) { $ToastNotification.Visibility = 'Collapsed' } }.GetNewClosure())
+    $ToastNotification.RenderTransform.BeginAnimation(
+        [System.Windows.Media.TranslateTransform]::YProperty, $slideOut)
+}
+
+function Show-Toast {
+    param(
+        [string]$Message,
+        [ValidateSet('success','error','info')][string]$Type = 'info',
+        [int]$DurationSeconds = 4
+    )
+    $script:ToastGeneration++
+    if ($script:ToastTimer) { $script:ToastTimer.Stop() }
+    $bgColor = switch ($Type) {
+        'success' { '#2F855A' }
+        'error'   { '#C53030' }
+        'info'    { '#2B6CB0' }
+    }
+    $ToastNotification.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString($bgColor)
+    $ToastMessage.Text = $Message
+    # Reset transform and make visible
+    $ToastNotification.RenderTransform = New-Object System.Windows.Media.TranslateTransform(0, -50)
+    $ToastNotification.Visibility = 'Visible'
+    # Slide in animation
+    $slideIn = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $slideIn.From = -50
+    $slideIn.To = 0
+    $slideIn.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(250))
+    $slideIn.EasingFunction = New-Object System.Windows.Media.Animation.QuadraticEase
+    $slideIn.EasingFunction.EasingMode = 'EaseOut'
+    $ToastNotification.RenderTransform.BeginAnimation(
+        [System.Windows.Media.TranslateTransform]::YProperty, $slideIn)
+    # Auto-dismiss timer
+    $script:ToastTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:ToastTimer.Interval = [TimeSpan]::FromSeconds($DurationSeconds)
+    $script:ToastTimer.Add_Tick({ Hide-Toast }.GetNewClosure())
+    $script:ToastTimer.Start()
+}
+
+$ToastDismissButton.Add_Click({ Hide-Toast })
+
+function Set-SidebarState {
+    param([bool]$Collapsed)
+    $script:SidebarCollapsed = $Collapsed
+    if ($Collapsed) {
+        $SidebarColumn.Width = [System.Windows.GridLength]::new(48)
+        $SidebarToggleButton.Content = ">>"
+        $SidebarToggleButton.HorizontalAlignment = 'Center'
+        $SidebarToggleButton.ToolTip = "Expand sidebar (Ctrl+B)"
+        $SidebarTopContent.Visibility = 'Collapsed'
+        $SidebarBottomContent.Visibility = 'Collapsed'
+        $SidebarCenterContent.Visibility = 'Collapsed'
+        # Show collapsed connection status dot (sync color from main dot)
+        $CollapsedStatusDot.Fill = $ConnectionStatusDot.Fill
+        $CollapsedStatusDot.ToolTip = $ConnectionStatusDot.ToolTip
+        $CollapsedStatusDot.Visibility = 'Visible'
+    } else {
+        $SidebarColumn.Width = [System.Windows.GridLength]::new(200)
+        $SidebarToggleButton.Content = "<<"
+        $SidebarToggleButton.HorizontalAlignment = 'Right'
+        $SidebarToggleButton.ToolTip = "Collapse sidebar (Ctrl+B)"
+        $SidebarTopContent.Visibility = 'Visible'
+        $SidebarBottomContent.Visibility = 'Visible'
+        $SidebarCenterContent.Visibility = 'Visible'
+        $CollapsedStatusDot.Visibility = 'Collapsed'
+    }
+}
+
+$SidebarToggleButton.Add_Click({
+    Set-SidebarState -Collapsed (-not $script:SidebarCollapsed)
+})
 $logs_button = $Window.FindName('logs_button')
 $PrerequisitesButton = $Window.FindName('PrerequisitesButton')
 $FeedbackLink = $Window.FindName('FeedbackLink')
@@ -4442,6 +4628,7 @@ $SearchPlaceholder = $Window.FindName('SearchPlaceholder')
 $ResultCountText = $Window.FindName('ResultCountText')
 $FilterToggleButton = $Window.FindName('FilterToggleButton')
 $ClearSearchButton = $Window.FindName('ClearSearchButton')
+$SearchEmptyState = $Window.FindName('SearchEmptyState')
 $OffboardPanel = $Window.FindName('OffboardPanel')
 $SelectedDeviceCount = $Window.FindName('SelectedDeviceCount')
 
@@ -4509,12 +4696,15 @@ $ClearSearchButton.Add_Click({
         $FilterPrimaryUser.Text = ''
         $FilterCompliance.Text = ''
         $ResultCountText.Text = ''
+        $SearchEmptyState.Visibility = 'Visible'
+        $SearchResultsDataGrid.Visibility = 'Collapsed'
         $OffboardPanel.Visibility = 'Collapsed'
         $OffboardButton.IsEnabled = $false
         $ExportSelectedButton.IsEnabled = $false
         $Window.FindName('intune_status').Text = 'Intune'
         $Window.FindName('autopilot_status').Text = 'Autopilot'
         $Window.FindName('aad_status').Text = 'Entra ID'
+        $SearchInputText.Focus()
     })
 
 # Shift-click range selection
@@ -4583,6 +4773,18 @@ $Window.Add_Loaded({
         $Dropdown.SelectedIndex = 0
     })
 
+# Update search placeholder text based on dropdown selection
+$Dropdown.Add_SelectionChanged({
+        $placeholderText = switch ($Dropdown.SelectedItem) {
+            "Device Name"              { "Enter device name (e.g., DESKTOP-ABC123)..." }
+            "Serial Number"            { "Enter serial number (e.g., 1234567890)..." }
+            "Device ID"                { "Enter Intune device ID (GUID)..." }
+            "Contains (partial match)" { "Enter partial name or serial (comma-separated)..." }
+            default                    { "Enter device name, serial number, or ID..." }
+        }
+        $SearchPlaceholder.Text = $placeholderText
+    })
+
 $Window.Add_Loaded({
         try {
             Write-Log "Window is loading..."
@@ -4603,7 +4805,8 @@ $Window.Add_Loaded({
                 $HomeNavDashboard.IsEnabled = $false
                 $HomeNavDeviceMgmt.IsEnabled = $false
                 $HomeNavPlaybooks.IsEnabled = $false
-                
+                Update-HomePageState -Connected $false
+
                 # Force Home menu selection
                 $MenuHome.IsChecked = $true
             }
@@ -4621,6 +4824,8 @@ $Window.Add_Loaded({
                 $PrerequisitesButton.IsEnabled = $true
                 $ConnectionStatusDot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#48BB78')
                 $ConnectionStatusDot.ToolTip = "Connected"
+                $CollapsedStatusDot.Fill = $ConnectionStatusDot.Fill
+                $CollapsedStatusDot.ToolTip = "Connected"
 
                 # Enable navigation menus
                 $MenuDashboard.IsEnabled = $true
@@ -4629,7 +4834,8 @@ $Window.Add_Loaded({
                 $HomeNavDashboard.IsEnabled = $true
                 $HomeNavDeviceMgmt.IsEnabled = $true
                 $HomeNavPlaybooks.IsEnabled = $true
-                
+                Update-HomePageState -Connected $true
+
                 # Get tenant details for existing connection
                 try {
                     Write-Log "Retrieving tenant information for existing connection..."
@@ -4664,18 +4870,18 @@ $Window.Add_Loaded({
                 if ($missingPermissions.Count -gt 0) {
                     $missingList = $missingPermissions -join ", "
                     Write-Log "Warning: Missing permissions for existing connection: $missingList"
-                    [System.Windows.MessageBox]::Show(
-                        "The following permissions are missing: `n$missingList`n`nThe application may not function correctly.",
-                        "Missing Permissions",
-                        [System.Windows.MessageBoxButton]::OK,
-                        [System.Windows.MessageBoxImage]::Warning
-                    )
+                    Show-Toast -Message "Missing permissions: $missingList" -Type "info" -DurationSeconds 6
                 }
             }
 
             # Update version displays
             Update-VersionDisplays -window $Window
             Write-Log "Version displays updated"
+
+            # If already connected on launch, navigate to Dashboard
+            if ($null -ne (Get-MgContext)) {
+                $MenuDashboard.IsChecked = $true
+            }
         }
         catch {
             Write-Log "Error occurred during window load: $_"
@@ -4683,11 +4889,15 @@ $Window.Add_Loaded({
             $AuthenticateButton.IsEnabled = $true
             $Disconnect.IsEnabled = $false
             $PrerequisitesButton.IsEnabled = $true
-            
+
             # Disable navigation menus
             $MenuDashboard.IsEnabled = $false
             $MenuDeviceManagement.IsEnabled = $false
             $MenuPlaybooks.IsEnabled = $false
+            $HomeNavDashboard.IsEnabled = $false
+            $HomeNavDeviceMgmt.IsEnabled = $false
+            $HomeNavPlaybooks.IsEnabled = $false
+            Update-HomePageState -Connected $false
         }
     })
     
@@ -4706,7 +4916,9 @@ $Disconnect.Add_Click({
             $PrerequisitesButton.IsEnabled = $true
             $ConnectionStatusDot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FC8181')
             $ConnectionStatusDot.ToolTip = "Disconnected"
-            
+            $CollapsedStatusDot.Fill = $ConnectionStatusDot.Fill
+            $CollapsedStatusDot.ToolTip = "Disconnected"
+
             # Hide tenant info
             $Window.FindName('TenantInfoSection').Visibility = 'Collapsed'
             $Window.FindName('TenantDisplayName').Text = ""
@@ -4717,28 +4929,28 @@ $Disconnect.Add_Click({
             $MenuDashboard.IsEnabled = $false
             $MenuDeviceManagement.IsEnabled = $false
             $MenuPlaybooks.IsEnabled = $false
+            $HomeNavDashboard.IsEnabled = $false
+            $HomeNavDeviceMgmt.IsEnabled = $false
+            $HomeNavPlaybooks.IsEnabled = $false
+            Update-HomePageState -Connected $false
             $MenuHome.IsChecked = $true
-            
+
             # Clear any sensitive data from the dashboard
-            $Window.FindName('IntuneDevicesCount').Text = "0"
-            $Window.FindName('AutopilotDevicesCount').Text = "0"
-            $Window.FindName('EntraIDDevicesCount').Text = "0"
-            $Window.FindName('StaleDevices30Count').Text = "0"
-            $Window.FindName('StaleDevices90Count').Text = "0"
-            $Window.FindName('StaleDevices180Count').Text = "0"
-            $Window.FindName('PersonalDevicesCount').Text = "0"
-            $Window.FindName('CorporateDevicesCount').Text = "0"
+            $Window.FindName('IntuneDevicesCount').Text = "--"
+            $Window.FindName('AutopilotDevicesCount').Text = "--"
+            $Window.FindName('EntraIDDevicesCount').Text = "--"
+            $Window.FindName('StaleDevices30Count').Text = "--"
+            $Window.FindName('StaleDevices90Count').Text = "--"
+            $Window.FindName('StaleDevices180Count').Text = "--"
+            $Window.FindName('PersonalDevicesCount').Text = "--"
+            $Window.FindName('CorporateDevicesCount').Text = "--"
+            $Window.FindName('DashboardLastRefreshed').Text = ""
             
             Write-Log "Successfully disconnected from MS Graph"
         }
         catch {
             Write-Log "Error occurred while attempting to disconnect from MS Graph: $_"
-            [System.Windows.MessageBox]::Show(
-                "Error disconnecting from Microsoft Graph: $_",
-                "Disconnect Error",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Error
-            )
+            Show-Toast -Message "Error disconnecting from Microsoft Graph: $_" -Type "error" -DurationSeconds 6
         }
     })
     
@@ -4782,6 +4994,8 @@ $AuthenticateButton.Add_Click({
                 $Disconnect.IsEnabled = $true
                 $ConnectionStatusDot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#48BB78')
                 $ConnectionStatusDot.ToolTip = "Connected"
+                $CollapsedStatusDot.Fill = $ConnectionStatusDot.Fill
+                $CollapsedStatusDot.ToolTip = "Connected"
 
                 # Enable navigation menus
                 $MenuDashboard.IsEnabled = $true
@@ -4790,6 +5004,7 @@ $AuthenticateButton.Add_Click({
                 $HomeNavDashboard.IsEnabled = $true
                 $HomeNavDeviceMgmt.IsEnabled = $true
                 $HomeNavPlaybooks.IsEnabled = $true
+                Update-HomePageState -Connected $true
             }
             else {
                 # Reset button state on failed connection
@@ -4800,6 +5015,8 @@ $AuthenticateButton.Add_Click({
                 $Disconnect.IsEnabled = $false
                 $ConnectionStatusDot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FC8181')
                 $ConnectionStatusDot.ToolTip = "Disconnected"
+                $CollapsedStatusDot.Fill = $ConnectionStatusDot.Fill
+                $CollapsedStatusDot.ToolTip = "Disconnected"
 
                 # Disable navigation menus
                 $MenuDashboard.IsEnabled = $false
@@ -4808,7 +5025,8 @@ $AuthenticateButton.Add_Click({
                 $HomeNavDashboard.IsEnabled = $false
                 $HomeNavDeviceMgmt.IsEnabled = $false
                 $HomeNavPlaybooks.IsEnabled = $false
-                
+                Update-HomePageState -Connected $false
+
                 # Hide tenant info
                 $Window.FindName('TenantInfoSection').Visibility = 'Collapsed'
                 $Window.FindName('TenantDisplayName').Text = ""
@@ -4828,19 +5046,15 @@ $AuthenticateButton.Add_Click({
             $MenuDashboard.IsEnabled = $false
             $MenuDeviceManagement.IsEnabled = $false
             $MenuPlaybooks.IsEnabled = $false
-            
+            Update-HomePageState -Connected $false
+
             # Hide tenant info
             $Window.FindName('TenantInfoSection').Visibility = 'Collapsed'
             $Window.FindName('TenantDisplayName').Text = ""
             $Window.FindName('TenantId').Text = ""
             $Window.FindName('TenantDomain').Text = ""
             
-            [System.Windows.MessageBox]::Show(
-                "Authentication failed: $_",
-                "Error",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Error
-            )
+            Show-Toast -Message "Authentication failed: $_" -Type "error" -DurationSeconds 6
         }
     })
     
@@ -4848,7 +5062,7 @@ $AuthenticateButton.Add_Click({
 $SearchButton.Add_Click({
         if ($AuthenticateButton.IsEnabled) {
             Write-Log "User is not connected to MS Graph. Attempted search operation."
-            [System.Windows.MessageBox]::Show("You are not connected to MS Graph. Please connect first.")
+            Show-Toast -Message "You are not connected to MS Graph. Please connect first." -Type "info"
             return
         }
 
@@ -4856,21 +5070,32 @@ $SearchButton.Add_Click({
             # Trim the input and split by comma
             $searchInput = $SearchInputText.Text.Trim()
             $SearchTexts = $searchInput -split ', ' | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-            
+
             if ($SearchTexts.Count -eq 0) {
-                [System.Windows.MessageBox]::Show("Please enter at least one device name or serial number.")
+                Show-Toast -Message "Please enter at least one device name or serial number." -Type "info"
                 return
             }
-            
+
+            # Show searching state
+            $SearchButton.Content = "Searching..."
+            $SearchButton.IsEnabled = $false
+            $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+            $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action]{})
+
             Write-Log "Searching for devices: $SearchTexts"
             $searchOption = $Dropdown.SelectedItem
-            
+
             # Call the centralized search function
             Invoke-DeviceSearch -SearchTexts $SearchTexts -SearchOption $searchOption
         }
         catch {
             Write-Log "Error occurred during search operation. Exception: $_"
-            [System.Windows.MessageBox]::Show("Error in search operation. Please ensure the Serial Number or Device Name is valid.")
+            Show-Toast -Message "Error in search operation. Please ensure the Serial Number or Device Name is valid." -Type "error" -DurationSeconds 6
+        }
+        finally {
+            $SearchButton.Content = "Search"
+            $SearchButton.IsEnabled = $true
+            $Window.Cursor = $null
         }
     })
     
@@ -4878,7 +5103,7 @@ $SearchButton.Add_Click({
 $bulk_import_button.Add_Click({
         if ($AuthenticateButton.IsEnabled) {
             Write-Log "User is not connected to MS Graph. Attempted bulk import operation."
-            [System.Windows.MessageBox]::Show("You are not connected to MS Graph. Please connect first.")
+            Show-Toast -Message "You are not connected to MS Graph. Please connect first." -Type "info"
             return
         }
 
@@ -4908,21 +5133,21 @@ $bulk_import_button.Add_Click({
         }
         catch {
             Write-Log "Exception in bulk import: $_"
-            [System.Windows.MessageBox]::Show("Error in bulk import operation: $_", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+            Show-Toast -Message "Error in bulk import operation: $_" -Type "error" -DurationSeconds 6
         }
     })
 
 $OffboardButton.Add_Click({
         if ($AuthenticateButton.IsEnabled) {
             Write-Log "User is not connected to MS Graph. Attempted offboarding operation."
-            [System.Windows.MessageBox]::Show("You are not connected to MS Graph. Please connect first.")
+            Show-Toast -Message "You are not connected to MS Graph. Please connect first." -Type "info"
             return
         }
 
         $selectedDevices = $SearchResultsDataGrid.ItemsSource | Where-Object { $_.IsSelected }
 
         if (-not $selectedDevices) {
-            [System.Windows.MessageBox]::Show("Please select at least one device to offboard.")
+            Show-Toast -Message "Please select at least one device to offboard." -Type "info"
             return
         }
 
@@ -4977,14 +5202,14 @@ $OffboardButton.Add_Click({
             <!-- Header -->
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
                 <TextBlock Text="Confirm Device Offboarding" FontSize="24" FontWeight="SemiBold" Foreground="#1A202C"/>
-                <TextBlock Text="Select the services you want to remove the device(s) from:" Foreground="#4A5568" FontSize="14" Margin="0,8,0,0"/>
+                <TextBlock x:Name="ConfirmSubtitle" Text="Select which services to offboard from" Foreground="#4A5568" FontSize="14" Margin="0,8,0,0"/>
             </StackPanel>
 
             <!-- Warning Message (Top, always visible) -->
             <Border DockPanel.Dock="Top" Background="#FEF2F2" BorderBrush="#FEE2E2" BorderThickness="1" CornerRadius="6" Padding="16" Margin="0,0,0,16">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="M12,2L1,21H23M12,6L19.53,19H4.47M11,10V13H13V10M11,15V17H13V15" Fill="#DC2626" Width="24" Height="24" Stretch="Uniform" Margin="0,0,12,0"/>
-                    <TextBlock Text="This action cannot be undone. The device(s) will be permanently removed from the selected services." Foreground="#DC2626" TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="400"/>
+                    <TextBlock Text="This action cannot be undone. Devices will be removed or disabled from the selected services." Foreground="#DC2626" TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="400"/>
                 </StackPanel>
             </Border>
 
@@ -4995,8 +5220,8 @@ $OffboardButton.Add_Click({
                     <TextBox x:Name="ConfirmationTextBox" Height="36" Padding="12,8" FontSize="14" BorderBrush="#FEE2E2" BorderThickness="1" MaxWidth="300" HorizontalAlignment="Left"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="CancelButton" Content="Cancel" Width="120" Height="40" Background="#F0F0F0" Foreground="#2D3748" BorderThickness="0" Margin="0,0,12,0"/>
-                    <Button x:Name="ConfirmButton" Content="Confirm Offboarding" Width="160" Height="40" Background="#DC2626" Foreground="White" BorderThickness="0" IsEnabled="False"/>
+                    <Button x:Name="CancelButton" Content="Cancel" Width="120" Height="40" Background="#F0F0F0" Foreground="#2D3748" BorderThickness="0" Margin="0,0,12,0" IsCancel="True" Cursor="Hand"/>
+                    <Button x:Name="ConfirmButton" Content="Confirm Offboarding" Width="160" Height="40" Background="#DC2626" Foreground="White" BorderThickness="0" IsEnabled="False" Cursor="Hand"/>
                 </StackPanel>
             </StackPanel>
 
@@ -5081,7 +5306,8 @@ $OffboardButton.Add_Click({
                                             <TextBlock Text="{Binding KeyText}" TextWrapping="Wrap" Margin="0,0,0,12"/>
                                             <Button x:Name="CopyKeyButton" Content="Copy Key" Width="100" HorizontalAlignment="Left"
                                                     Height="32" Background="#0078D4" Foreground="White" BorderThickness="0"
-                                                    Tag="{Binding Key}" Margin="0,0,0,4">
+                                                    Tag="{Binding Key}" Margin="0,0,0,4" Cursor="Hand"
+                                                    ToolTip="Copy recovery key to clipboard">
                                                 <Button.Resources>
                                                     <Style TargetType="Border">
                                                         <Setter Property="CornerRadius" Value="4"/>
@@ -5111,12 +5337,7 @@ $OffboardButton.Add_Click({
         }
         catch {
             Write-Log "Error creating confirmation window: $_"
-            [System.Windows.MessageBox]::Show(
-                "Failed to create the confirmation dialog. Error: $_",
-                "Dialog Creation Error",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Error
-            )
+            Show-Toast -Message "Failed to create the confirmation dialog: $_" -Type "error" -DurationSeconds 6
             return
         }
         
@@ -5129,13 +5350,20 @@ $OffboardButton.Add_Click({
         $preActionCombo = $confirmationWindow.FindName('PreActionComboBox')
         $coMgmtBanner = $confirmationWindow.FindName('CoMgmtBanner')
         $confirmationTextBox = $confirmationWindow.FindName('ConfirmationTextBox')
+        $confirmSubtitle = $confirmationWindow.FindName('ConfirmSubtitle')
+
+        # Set device count in subtitle
+        $deviceCount = @($selectedDevices).Count
+        $confirmSubtitle.Text = "Offboarding $deviceCount device$(if ($deviceCount -ne 1) { 's' }) -- select which services to remove from"
 
         # Wire type-to-confirm: enable ConfirmButton only when user types "OFFBOARD"
         $confirmationTextBox.Add_TextChanged({
                 if ($confirmationTextBox.Text -eq 'OFFBOARD') {
                     $confirmButton.IsEnabled = $true
+                    $confirmationTextBox.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#48BB78')
                 } else {
                     $confirmButton.IsEnabled = $false
+                    $confirmationTextBox.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FEE2E2')
                 }
             })
 
@@ -5422,12 +5650,7 @@ $OffboardButton.Add_Click({
         }
         catch {
             Write-Log "Error showing confirmation dialog: $_"
-            [System.Windows.MessageBox]::Show(
-                "Failed to show the confirmation dialog. Error: $_",
-                "Dialog Error",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Error
-            )
+            Show-Toast -Message "Failed to show the confirmation dialog: $_" -Type "error" -DurationSeconds 6
             return
         }
         if (-not $confirmationResult) {
@@ -5750,7 +5973,7 @@ $OffboardButton.Add_Click({
         }
         catch {
             Write-Log "Critical error in offboarding operation. Exception: $_"
-            [System.Windows.MessageBox]::Show("Critical error in offboarding operation. Please check the logs for details.")
+            Show-Toast -Message "Critical error in offboarding operation. Please check the logs for details." -Type "error" -DurationSeconds 8
         }
     })
 
@@ -5780,12 +6003,7 @@ $ExportSearchResultsButton.Add_Click({
             Export-DeviceListToCSV -DeviceList $exportData -DefaultFileName $fileName
         }
         else {
-            [System.Windows.MessageBox]::Show(
-                "No search results to export.",
-                "Export",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Information
-            )
+            Show-Toast -Message "No search results to export." -Type "info"
         }
     })
 
@@ -5815,12 +6033,7 @@ $ExportSelectedButton.Add_Click({
             Export-DeviceListToCSV -DeviceList $exportData -DefaultFileName $fileName
         }
         else {
-            [System.Windows.MessageBox]::Show(
-                "No devices selected to export.",
-                "Export Selected",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Information
-            )
+            Show-Toast -Message "No devices selected to export." -Type "info"
         }
     })
 
@@ -5881,7 +6094,8 @@ function Show-DeviceGroupMembership {
         <DockPanel Margin="24">
             <TextBlock DockPanel.Dock="Top" Text="Group Memberships" FontSize="18" FontWeight="SemiBold" Foreground="#1A202C" Margin="0,0,0,16"/>
             <Button x:Name="GroupCloseButton" DockPanel.Dock="Bottom" Content="Close" Width="100" Height="36"
-                    Background="#0078D4" Foreground="White" BorderThickness="0" HorizontalAlignment="Right" Margin="0,16,0,0"/>
+                    Background="#0078D4" Foreground="White" BorderThickness="0" HorizontalAlignment="Right" Margin="0,16,0,0"
+                    IsCancel="True" Cursor="Hand"/>
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="GroupList">
                     <ItemsControl.ItemTemplate>
@@ -5951,8 +6165,8 @@ function Show-OSPickerDialog {
                 <ComboBoxItem Content="Linux"/>
             </ComboBox>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
-                <Button x:Name="OSCancelButton" Content="Cancel" Width="80" Height="32" Background="#F0F0F0" Foreground="#2D3748" BorderThickness="0" Margin="0,0,8,0"/>
-                <Button x:Name="OSOkButton" Content="OK" Width="80" Height="32" Background="#0078D4" Foreground="White" BorderThickness="0"/>
+                <Button x:Name="OSCancelButton" Content="Cancel" Width="80" Height="32" Background="#F0F0F0" Foreground="#2D3748" BorderThickness="0" Margin="0,0,8,0" IsCancel="True" Cursor="Hand"/>
+                <Button x:Name="OSOkButton" Content="OK" Width="80" Height="32" Background="#0078D4" Foreground="White" BorderThickness="0" IsDefault="True" Cursor="Hand"/>
             </StackPanel>
         </StackPanel>
     </Border>
@@ -5994,17 +6208,19 @@ function Show-OffboardingSummary {
             <!-- Header -->
             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,24">
                 <TextBlock Text="Offboarding Summary" FontSize="24" FontWeight="SemiBold" Foreground="#1A202C"/>
-                <TextBlock Text="Review the results of the offboarding operation below" Foreground="#4A5568" FontSize="14" Margin="0,8,0,0"/>
+                <TextBlock x:Name="SummarySubtitle" Text="Results of the offboarding operation" Foreground="#4A5568" FontSize="14" Margin="0,8,0,0"/>
             </StackPanel>
 
             <!-- Close and Export Buttons -->
             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
                 <Button x:Name="ExportReportButton" Content="Export Report" Width="130" Height="40"
-                        Background="#1B2A47" Foreground="White" BorderThickness="0" Margin="0,0,12,0">
+                        Background="#1B2A47" Foreground="White" BorderThickness="0" Margin="0,0,12,0"
+                        Cursor="Hand" ToolTip="Export a detailed HTML report of offboarding results">
                     <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="4"/></Style></Button.Resources>
                 </Button>
                 <Button x:Name="CloseButton" Content="Close" Width="120" Height="40"
-                        Background="#0078D4" Foreground="White" BorderThickness="0"/>
+                        Background="#0078D4" Foreground="White" BorderThickness="0"
+                        IsCancel="True" Cursor="Hand"/>
             </StackPanel>
 
             <!-- Main Content ScrollViewer -->
@@ -6107,7 +6323,7 @@ function Show-OffboardingSummary {
 
                                             <!-- MDE Result -->
                                             <StackPanel Grid.Column="3" Visibility="{Binding MDEVisibility}">
-                                                <TextBlock Text="MDE" FontWeight="Medium" FontSize="12" Margin="0,0,0,4"/>
+                                                <TextBlock Text="Defender" FontWeight="Medium" FontSize="12" Margin="0,0,0,4"/>
                                                 <TextBlock Text="{Binding MDEStatus}" FontSize="11" Foreground="{Binding MDEColor}"/>
                                                 <TextBlock Text="{Binding MDEError}" FontSize="10" Foreground="#F56565" TextWrapping="Wrap" Visibility="{Binding MDEErrorVisibility}"/>
                                             </StackPanel>
@@ -6219,7 +6435,7 @@ function Show-OffboardingSummary {
                 "Skipped"
             }
             elseif ($result.EntraID.Found) {
-                if ($result.EntraID.Success) { "-> $entraActionLabel" } else { "X Failed" }
+                if ($result.EntraID.Success) { $entraActionLabel } else { "Failed" }
             }
             else { "Not Found" }
             EntraIDColor             = if ($entraIDSkipped) {
@@ -6234,7 +6450,7 @@ function Show-OffboardingSummary {
                 "Skipped"
             }
             elseif ($result.Intune.Found) {
-                if ($result.Intune.Success) { "-> Removed" } else { "X Failed" }
+                if ($result.Intune.Success) { "Removed" } else { "Failed" }
             }
             else { "Not Found" }
             IntuneColor              = if ($intuneSkipped) {
@@ -6249,7 +6465,7 @@ function Show-OffboardingSummary {
                 "Skipped"
             }
             elseif ($result.Autopilot.Found) {
-                if ($result.Autopilot.Success) { "-> Removed" } else { "X Failed" }
+                if ($result.Autopilot.Success) { "Removed" } else { "Failed" }
             }
             else { "Not Found" }
             AutopilotColor           = if ($autopilotSkipped) {
@@ -6263,7 +6479,7 @@ function Show-OffboardingSummary {
             MDEVisibility            = if ($mdeSelected) { "Visible" } else { "Collapsed" }
             MDEStatus                = if (-not $mdeSelected) { "Skipped" }
                                        elseif ($result.MDE.Found) {
-                                           if ($result.MDE.Success) { "-> Offboarded" } else { "X Failed" }
+                                           if ($result.MDE.Success) { "Offboarded" } else { "Failed" }
                                        } else { "Not Found" }
             MDEColor                 = if (-not $mdeSelected) { "#A0AEC0" }
                                        elseif (!$result.MDE.Found) { "#718096" }
@@ -6313,6 +6529,7 @@ function Show-OffboardingSummary {
     $successfulText.Text = $successful.ToString()
     $partialText.Text = $partial.ToString()
     $failedText.Text = $failed.ToString()
+    $summaryWindow.FindName('SummarySubtitle').Text = "Completed at $(Get-Date -Format 'HH:mm:ss on yyyy-MM-dd')"
 
     # Show MAA banner if needed
     if ($hasMAA) {
@@ -6371,7 +6588,7 @@ function Show-DashboardCardResults {
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
                     <TextBlock x:Name="TitleText" Text="Dashboard Results" FontSize="24" FontWeight="SemiBold" Foreground="#1A202C"/>
-                    <TextBlock x:Name="CountText" Text="0 devices found" Foreground="#4A5568" FontSize="14" Margin="0,8,0,0"/>
+                    <TextBlock x:Name="CountText" Text="" Foreground="#4A5568" FontSize="14" Margin="0,8,0,0"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button x:Name="ExportHTMLButton"
@@ -6381,7 +6598,9 @@ function Show-DashboardCardResults {
                             Background="#1B2A47"
                             Foreground="White"
                             BorderThickness="0"
-                            Margin="0,0,8,0">
+                            Margin="0,0,8,0"
+                            Cursor="Hand"
+                            ToolTip="Export results as a formatted HTML report">
                         <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="4"/></Style></Button.Resources>
                     </Button>
                     <Button x:Name="ExportButton"
@@ -6390,15 +6609,18 @@ function Show-DashboardCardResults {
                             Padding="16,0"
                             Background="#0078D4"
                             Foreground="White"
-                            BorderThickness="0">
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            ToolTip="Export results as a CSV file">
                         <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="4"/></Style></Button.Resources>
                     </Button>
                 </StackPanel>
             </Grid>
 
             <!-- Close Button -->
-            <Button x:Name="CloseButton" DockPanel.Dock="Bottom" Content="Close" Width="120" Height="40" 
-                    Background="#F0F0F0" Foreground="#2D3748" BorderThickness="0" HorizontalAlignment="Right" Margin="0,24,0,0"/>
+            <Button x:Name="CloseButton" DockPanel.Dock="Bottom" Content="Close" Width="120" Height="40"
+                    Background="#F0F0F0" Foreground="#2D3748" BorderThickness="0" HorizontalAlignment="Right" Margin="0,24,0,0"
+                    IsCancel="True" Cursor="Hand"/>
 
             <!-- Main Content DataGrid -->
             <DataGrid x:Name="ResultsDataGrid"
@@ -6462,6 +6684,7 @@ function Show-DashboardCardResults {
     }
     
     # Set title and count
+    $dashboardWindow.Title = $Title
     $titleText.Text = $Title
     $countText.Text = "$($DeviceList.Count) devices found"
     
@@ -6788,7 +7011,7 @@ $logs_button.Add_Click({
             Invoke-Item $script:LogDirectory
         }
         else {
-            [System.Windows.MessageBox]::Show("Log directory not found.", "Logs", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            Show-Toast -Message "Log directory not found." -Type "info"
         }
     })
         
@@ -6806,9 +7029,34 @@ $PlaybookResultsDataGrid = $Window.FindName('PlaybookResultsDataGrid')
 
 # Home page buttons
 $HomeConnectButton = $Window.FindName('HomeConnectButton')
+$HomeGetStartedTitle = $Window.FindName('HomeGetStartedTitle')
+$HomeGetStartedDesc = $Window.FindName('HomeGetStartedDesc')
 $HomeNavDashboard = $Window.FindName('HomeNavDashboard')
 $HomeNavDeviceMgmt = $Window.FindName('HomeNavDeviceMgmt')
 $HomeNavPlaybooks = $Window.FindName('HomeNavPlaybooks')
+
+function Update-HomePageState {
+    param([bool]$Connected)
+    if ($Connected) {
+        $HomeGetStartedTitle.Text = "Connected"
+        $HomeGetStartedDesc.Text = "You are connected to Microsoft Graph. Use the navigation below or the sidebar to get started."
+        $HomeConnectButton.Content = "Connected"
+        $HomeConnectButton.IsEnabled = $false
+        $HomeConnectButton.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#2F855A')
+        $HomeNavDashboard.ToolTip = "View device statistics and analytics"
+        $HomeNavDeviceMgmt.ToolTip = "Search and offboard devices"
+        $HomeNavPlaybooks.ToolTip = "Run automated reports and tasks"
+    } else {
+        $HomeGetStartedTitle.Text = "Get Started"
+        $HomeGetStartedDesc.Text = "Sign in with Microsoft Graph to search, audit, and offboard devices across all connected services."
+        $HomeConnectButton.Content = "Connect to Microsoft Graph"
+        $HomeConnectButton.IsEnabled = $true
+        $HomeConnectButton.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#0078D4')
+        $HomeNavDashboard.ToolTip = "View device statistics and analytics (connect first)"
+        $HomeNavDeviceMgmt.ToolTip = "Search and offboard devices (connect first)"
+        $HomeNavPlaybooks.ToolTip = "Run automated reports and tasks (connect first)"
+    }
+}
 
 # Wire HomeConnectButton to same handler as AuthenticateButton
 $HomeConnectButton.Add_Click({
@@ -6851,6 +7099,7 @@ $MenuDashboard.Add_Checked({
         # Update dashboard statistics if connected
         if (-not $AuthenticateButton.IsEnabled) {
             Update-DashboardStatistics
+            $DashboardLastRefreshed.Text = "Last refreshed: $(Get-Date -Format 'HH:mm:ss')"
         }
     })
 
@@ -6860,6 +7109,11 @@ $MenuDeviceManagement.Add_Checked({
         $DeviceManagementPage.Visibility = 'Visible'
         $PlaybooksPage.Visibility = 'Collapsed'
         $PlaybookResultsGrid.Visibility = 'Collapsed'
+        # Auto-focus search input
+        $Window.Dispatcher.BeginInvoke(
+            [System.Windows.Threading.DispatcherPriority]::Background,
+            [Action]{ if ($SearchInputText.Focus()) { $SearchInputText.SelectAll() } }
+        )
     })
 
 $MenuPlaybooks.Add_Checked({
@@ -6870,6 +7124,60 @@ $MenuPlaybooks.Add_Checked({
         $PlaybookResultsGrid.Visibility = 'Collapsed'
         $Window.FindName('PlaybooksScrollViewer').Visibility = 'Visible'
     })
+
+# Global keyboard shortcuts
+$Window.Add_PreviewKeyDown({
+    param($sender, $e)
+    # Ctrl+K: Navigate to Device Offboarding and focus search
+    if ($e.Key -eq [System.Windows.Input.Key]::K -and
+        ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) {
+        if ($MenuDeviceManagement.IsEnabled) {
+            $e.Handled = $true
+            if ($MenuDeviceManagement.IsChecked) {
+                $SearchInputText.Focus()
+                $SearchInputText.SelectAll()
+            } else {
+                $MenuDeviceManagement.IsChecked = $true
+            }
+        }
+    }
+    # Ctrl+B: Toggle sidebar
+    if ($e.Key -eq [System.Windows.Input.Key]::B -and
+        ([System.Windows.Input.Keyboard]::Modifiers -band [System.Windows.Input.ModifierKeys]::Control)) {
+        $e.Handled = $true
+        Set-SidebarState -Collapsed (-not $script:SidebarCollapsed)
+    }
+    # F5: Refresh dashboard when on Dashboard page
+    if ($e.Key -eq [System.Windows.Input.Key]::F5) {
+        if ($MenuDashboard.IsChecked -and $DashboardRefreshButton.IsEnabled) {
+            $e.Handled = $true
+            $DashboardRefreshButton.RaiseEvent(
+                (New-Object System.Windows.RoutedEventArgs(
+                    [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
+        }
+    }
+    # Escape: dismiss toast, collapse filter, clear search (contextual)
+    if ($e.Key -eq [System.Windows.Input.Key]::Escape) {
+        # First priority: dismiss visible toast
+        if ($ToastNotification.Visibility -eq 'Visible') {
+            $e.Handled = $true
+            Hide-Toast
+        }
+        # Second: collapse filter row if open
+        elseif ($FilterRow.Visibility -eq 'Visible') {
+            $e.Handled = $true
+            $FilterRow.Visibility = 'Collapsed'
+            $FilterToggleButton.Content = 'Filter'
+        }
+        # Third: clear search if search input has text and is on device management page
+        elseif ($MenuDeviceManagement.IsChecked -and -not [string]::IsNullOrEmpty($SearchInputText.Text)) {
+            $e.Handled = $true
+            $ClearSearchButton.RaiseEvent(
+                (New-Object System.Windows.RoutedEventArgs(
+                    [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
+        }
+    }
+})
 
 # Wire platform filter ComboBox
 $DashboardPlatformFilter = $Window.FindName('DashboardPlatformFilter')
@@ -6882,10 +7190,22 @@ $DashboardPlatformFilter.Add_SelectionChanged({
 
 # Wire Dashboard Refresh button
 $DashboardRefreshButton = $Window.FindName('DashboardRefreshButton')
+$DashboardLastRefreshed = $Window.FindName('DashboardLastRefreshed')
 $DashboardRefreshButton.Add_Click({
         if (-not $AuthenticateButton.IsEnabled) {
-            $selected = $DashboardPlatformFilter.SelectedItem.Content
-            Update-DashboardStatistics -Platform $selected
+            $DashboardRefreshButton.Content = "Refreshing..."
+            $DashboardRefreshButton.IsEnabled = $false
+            $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+            $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action]{})
+            try {
+                $selected = $DashboardPlatformFilter.SelectedItem.Content
+                Update-DashboardStatistics -Platform $selected
+                $DashboardLastRefreshed.Text = "Last refreshed: $(Get-Date -Format 'HH:mm:ss')"
+            } finally {
+                $DashboardRefreshButton.Content = "Refresh"
+                $DashboardRefreshButton.IsEnabled = $true
+                $Window.Cursor = $null
+            }
         }
     })
 
@@ -7256,7 +7576,7 @@ function Update-DashboardStatistics {
     }
     catch {
         Write-Log "Error updating dashboard statistics: $_"
-        [System.Windows.MessageBox]::Show("Error updating dashboard statistics: $_`n`nPlease ensure you are connected to MS Graph.")
+        Show-Toast -Message "Error updating dashboard statistics. Please ensure you are connected to MS Graph." -Type "error" -DurationSeconds 6
     }
 }
 
@@ -7279,12 +7599,7 @@ $PlaybookButtons = @(
 foreach ($button in $PlaybookButtons) {
     $button.Add_Click({
             if ($AuthenticateButton.IsEnabled) {
-                [System.Windows.MessageBox]::Show(
-                    "Please connect to Microsoft Graph first.",
-                    "Authentication Required",
-                    [System.Windows.MessageBoxButton]::OK,
-                    [System.Windows.MessageBoxImage]::Warning
-                )
+                Show-Toast -Message "Please connect to Microsoft Graph first." -Type "info"
                 return
             }
             $playbookName = $this.Content.ToString()
@@ -7335,12 +7650,7 @@ foreach ($button in $PlaybookButtons) {
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 default {
-                    [System.Windows.MessageBox]::Show(
-                        "This playbook is not yet implemented.",
-                        "Not Implemented",
-                        [System.Windows.MessageBoxButton]::OK,
-                        [System.Windows.MessageBoxImage]::Information
-                    )
+                    Show-Toast -Message "This playbook is not yet implemented." -Type "info"
                 }
             }
         })
@@ -7397,7 +7707,7 @@ $SearchResultsDataGrid.Add_PreviewMouseDown({
                 $devName = if ($deviceObj) { $deviceObj.DeviceName } else { "Device" }
                 Show-DeviceGroupMembership -EntraDeviceId $entraId -DeviceName $devName
             } else {
-                [System.Windows.MessageBox]::Show("No Entra ID available for this device.", "Groups", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+                Show-Toast -Message "No Entra ID available for this device." -Type "info"
             }
         }
     })
@@ -7525,7 +7835,9 @@ function Show-PlaybookProgressModal {
                         BorderThickness="0"
                         HorizontalAlignment="Right"
                         Margin="0,16,0,0"
-                        Visibility="Collapsed"/>
+                        Visibility="Collapsed"
+                        IsCancel="True"
+                        Cursor="Hand"/>
             </StackPanel>
         </DockPanel>
     </Border>
@@ -7682,7 +7994,7 @@ function Invoke-Playbook {
                         # Update visibility and header text
                         $Window.FindName('PlaybooksScrollViewer').Visibility = 'Collapsed'
                         $PlaybookResultsGrid.Visibility = 'Visible'
-                        $Window.FindName('PlaybookResultsHeader').Text = $PlaybookName
+                        $Window.FindName('PlaybookResultsHeader').Text = "$PlaybookName ($($collection.Count) devices)"
                     
                         # Force layout update
                         $PlaybookResultsDataGrid.UpdateLayout()
@@ -7710,12 +8022,7 @@ function Invoke-Playbook {
             $status.Text = "Error occurred during execution"
         }
         else {
-            [System.Windows.MessageBox]::Show(
-                "Error executing playbook: $_",
-                "Playbook Error",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Error
-            )
+            Show-Toast -Message "Error executing playbook: $_" -Type "error" -DurationSeconds 6
         }
     }
 }
@@ -7924,12 +8231,7 @@ $ExportPlaybookResultsButton.Add_Click({
             Export-DeviceListToCSV -DeviceList $results -DefaultFileName $fileName
         }
         else {
-            [System.Windows.MessageBox]::Show(
-                "No results to export.",
-                "Export",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Information
-            )
+            Show-Toast -Message "No results to export." -Type "info"
         }
     })
 
@@ -7972,7 +8274,7 @@ $StaleDevices30Card.Add_MouseLeftButtonUp({
             }
             catch {
                 Write-Log "Error fetching stale devices: $_"
-                [System.Windows.MessageBox]::Show("Error fetching stale devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                Show-Toast -Message "Error fetching stale devices. Check logs for details." -Type "error" -DurationSeconds 6
             }
             finally {
                 $Window.Cursor = $previousCursor
@@ -8016,7 +8318,7 @@ $StaleDevices90Card.Add_MouseLeftButtonUp({
             }
             catch {
                 Write-Log "Error fetching stale devices: $_"
-                [System.Windows.MessageBox]::Show("Error fetching stale devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                Show-Toast -Message "Error fetching stale devices. Check logs for details." -Type "error" -DurationSeconds 6
             }
             finally {
                 $Window.Cursor = $previousCursor
@@ -8060,7 +8362,7 @@ $StaleDevices180Card.Add_MouseLeftButtonUp({
             }
             catch {
                 Write-Log "Error fetching stale devices: $_"
-                [System.Windows.MessageBox]::Show("Error fetching stale devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                Show-Toast -Message "Error fetching stale devices. Check logs for details." -Type "error" -DurationSeconds 6
             }
             finally {
                 $Window.Cursor = $previousCursor
@@ -8101,7 +8403,7 @@ $PersonalDevicesCard.Add_MouseLeftButtonUp({
             }
             catch {
                 Write-Log "Error fetching personal devices: $_"
-                [System.Windows.MessageBox]::Show("Error fetching personal devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                Show-Toast -Message "Error fetching personal devices. Check logs for details." -Type "error" -DurationSeconds 6
             }
             finally {
                 $Window.Cursor = $previousCursor
@@ -8142,7 +8444,7 @@ $CorporateDevicesCard.Add_MouseLeftButtonUp({
             }
             catch {
                 Write-Log "Error fetching corporate devices: $_"
-                [System.Windows.MessageBox]::Show("Error fetching corporate devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                Show-Toast -Message "Error fetching corporate devices. Check logs for details." -Type "error" -DurationSeconds 6
             }
             finally {
                 $Window.Cursor = $previousCursor
@@ -8184,7 +8486,7 @@ $IntuneDevicesCard.Add_MouseLeftButtonUp({
             }
             catch {
                 Write-Log "Error fetching Intune devices: $_"
-                [System.Windows.MessageBox]::Show("Error fetching Intune devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                Show-Toast -Message "Error fetching Intune devices. Check logs for details." -Type "error" -DurationSeconds 6
             }
             finally {
                 $Window.Cursor = $previousCursor
@@ -8225,7 +8527,7 @@ $AutopilotDevicesCard.Add_MouseLeftButtonUp({
             }
             catch {
                 Write-Log "Error fetching Autopilot devices: $_"
-                [System.Windows.MessageBox]::Show("Error fetching Autopilot devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                Show-Toast -Message "Error fetching Autopilot devices. Check logs for details." -Type "error" -DurationSeconds 6
             }
             finally {
                 $Window.Cursor = $previousCursor
@@ -8266,7 +8568,7 @@ $EntraIDDevicesCard.Add_MouseLeftButtonUp({
             }
             catch {
                 Write-Log "Error fetching Entra ID devices: $_"
-                [System.Windows.MessageBox]::Show("Error fetching Entra ID devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                Show-Toast -Message "Error fetching Entra ID devices. Check logs for details." -Type "error" -DurationSeconds 6
             }
             finally {
                 $Window.Cursor = $previousCursor
