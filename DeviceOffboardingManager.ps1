@@ -37,7 +37,11 @@
  A PowerShell GUI tool for efficiently managing and offboarding devices from Microsoft Intune, Autopilot, and Entra ID, featuring bulk operations and real-time analytics for streamlined device lifecycle management. 
 
 #> 
-Param()
+Param(
+    [switch]$Verbose
+)
+
+$script:VerboseMode = $Verbose.IsPresent
 
 #Requires -Version 7.0
 #Requires -Modules Microsoft.Graph.Authentication
@@ -3564,6 +3568,11 @@ function Write-Log {
     $logMessage = "$timestamp | $Severity | $admin | $Message"
 
     Add-Content -Path $script:LogFilePath -Value $logMessage
+
+    if ($script:VerboseMode -and $Severity -in @("WARN", "ERROR")) {
+        $color = if ($Severity -eq "ERROR") { "Red" } else { "Yellow" }
+        Write-Host "[$Severity] $Message" -ForegroundColor $color
+    }
 }
 
 function Export-DeviceListToCSV {
@@ -3805,7 +3814,7 @@ function Invoke-DeviceSearch {
         $allAutopilotDevices = $null
         if ($SearchOption -eq "Devicename") {
             try {
-                $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime"
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities"
                 $allAutopilotDevices = Get-GraphPagedResults -Uri $uri
                 Write-Log "Pre-fetched $($allAutopilotDevices.Count) Autopilot devices for display name matching"
             }
@@ -3852,7 +3861,7 @@ function Invoke-DeviceSearch {
                         
                         # If no Autopilot match by displayName and we have Intune device with serial, try serial number
                         if (-not $matchingAutopilotDevice -and $matchingIntuneDevice -and $matchingIntuneDevice.serialNumber) {
-                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($matchingIntuneDevice.serialNumber)')&`$select=id,displayName,serialNumber,lastContactedDateTime"
+                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($matchingIntuneDevice.serialNumber)')"
                             $matchingAutopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                         }
 
@@ -3905,7 +3914,7 @@ function Invoke-DeviceSearch {
                         
                         # If no match by displayName and we have serial number, try serial number
                         if (-not $matchingAutopilotDevice -and $IntuneDevice.serialNumber) {
-                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($IntuneDevice.serialNumber)')&`$select=id,displayName,serialNumber,lastContactedDateTime"
+                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($IntuneDevice.serialNumber)')"
                             $matchingAutopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                         }
 
@@ -3955,7 +3964,7 @@ function Invoke-DeviceSearch {
                 # Batch Intune + Autopilot queries together
                 $batchRequests = @(
                     @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=serialNumber eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
-                    @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$SearchText')&`$select=id,displayName,serialNumber,lastContactedDateTime" }
+                    @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$SearchText')" }
                 )
                 $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
                 $intuneResp = $batchResponses | Where-Object { $_.id -eq "intune" }
@@ -4096,7 +4105,7 @@ function Invoke-DeviceSearch {
                 # Pre-fetch Autopilot devices for client-side filtering
                 $AutopilotDevices = @()
                 try {
-                    $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime"
+                    $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities"
                     $allAutopilot = Get-GraphPagedResults -Uri $uri
                     $AutopilotDevices = $allAutopilot | Where-Object { $_.displayName -and $_.displayName -like "*$SearchText*" }
                 } catch {
@@ -4975,9 +4984,11 @@ $OffboardButton.Add_Click({
                     Key        = $null
                 }
                 $lapsDeviceId = $selectedDevice.EntraDeviceObjectId
+                if (-not $lapsDeviceId) { $lapsDeviceId = $intuneDevice.azureADDeviceId }
+                Write-Log "LAPS lookup - EntraDeviceObjectId: '$($selectedDevice.EntraDeviceObjectId)', intuneDevice.azureADDeviceId: '$($intuneDevice.azureADDeviceId)', resolved lapsDeviceId: '$lapsDeviceId'" -Severity "INFO"
                 if ($lapsDeviceId) {
                     try {
-                        $uri = "https://graph.microsoft.com/beta/directory/deviceLocalCredentials/$lapsDeviceId?`$select=credentials"
+                        $uri = "https://graph.microsoft.com/beta/directory/deviceLocalCredentials/$($lapsDeviceId)?`$select=credentials"
                         $lapsResponse = Invoke-MgGraphRequest -Uri $uri -Method GET
                         if ($lapsResponse.credentials -and $lapsResponse.credentials.Count -gt 0) {
                             $latestCred = $lapsResponse.credentials | Sort-Object -Property backupDateTime -Descending | Select-Object -First 1
@@ -6613,53 +6624,59 @@ function Update-DashboardStatistics {
             $oneEightyDaysAgo = (Get-Date).AddDays(-180).ToString('yyyy-MM-ddTHH:mm:ssZ')
 
             # Build Intune/Entra count URLs with optional platform filter
+            # Intune endpoints use ?$count=true&$top=1 (/$count path segment not supported in batch)
             $intuneCountUrl = if ($platformFilterStandalone) {
-                "/deviceManagement/managedDevices/`$count?`$filter=$platformFilterStandalone"
+                "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=$platformFilterStandalone"
             } else {
-                "/deviceManagement/managedDevices/`$count"
+                "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id"
             }
             $entraCountUrl = if ($platformFilterStandalone) {
-                "/devices/`$count?`$filter=$platformFilterStandalone"
+                "/devices?`$count=true&`$top=1&`$select=id&`$filter=$platformFilterStandalone"
             } else {
-                "/devices/`$count"
+                "/devices?`$count=true&`$top=1&`$select=id"
             }
 
             $batchBody = @{
                 requests = @(
-                    @{ id = "intune"; method = "GET"; url = $intuneCountUrl; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities/`$count"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "intune"; method = "GET"; url = $intuneCountUrl }
+                    @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities?`$count=true&`$top=1" }
                     @{ id = "entra"; method = "GET"; url = $entraCountUrl; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "stale30"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $thirtyDaysAgo$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "stale90"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $ninetyDaysAgo$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "stale180"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $oneEightyDaysAgo$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "personal"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=managedDeviceOwnerType eq 'personal'$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "corporate"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=managedDeviceOwnerType eq 'company'$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "osWindows"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=startswith(operatingSystem,'Windows')"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "osmacOS"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'macOS'"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "osiOS"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'iOS'"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "osAndroid"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'Android'"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "osLinux"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'Linux'"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "stale30"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=lastSyncDateTime lt $thirtyDaysAgo$platformFilter" }
+                    @{ id = "stale90"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=lastSyncDateTime lt $ninetyDaysAgo$platformFilter" }
+                    @{ id = "stale180"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=lastSyncDateTime lt $oneEightyDaysAgo$platformFilter" }
+                    @{ id = "personal"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=managedDeviceOwnerType eq 'personal'$platformFilter" }
+                    @{ id = "corporate"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=managedDeviceOwnerType eq 'company'$platformFilter" }
+                    @{ id = "osWindows"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=startswith(operatingSystem,'Windows')" }
+                    @{ id = "osmacOS"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=operatingSystem eq 'macOS'" }
+                    @{ id = "osiOS"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=operatingSystem eq 'iOS'" }
+                    @{ id = "osAndroid"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=operatingSystem eq 'Android'" }
+                    @{ id = "osLinux"; method = "GET"; url = "/deviceManagement/managedDevices?`$count=true&`$top=1&`$select=id&`$filter=operatingSystem eq 'Linux'" }
                 )
             } | ConvertTo-Json -Depth 5
 
             $batchResponse = Invoke-GraphRequestWithRetry -Uri "https://graph.microsoft.com/beta/`$batch" -Method POST -Body $batchBody -ContentType "application/json"
             $batchResponses = $batchResponse.responses
+            Write-Log "Dashboard batch raw statuses: $(($batchResponses | ForEach-Object { "$($_.id)=$($_.status)" }) -join ', ')"
 
-            # Helper to extract count from batch response (handles both raw int and hashtable wrapper)
+            # Helper to extract count from batch response (handles raw int, @odata.count, and hashtable wrapper)
             $getCount = {
                 param([string]$id)
                 $resp = $batchResponses | Where-Object { $_.id -eq $id }
-                if ($resp -and $resp.status -eq 200) {
-                    $rawBody = $resp.body
-                    if ($rawBody -is [int] -or $rawBody -is [long]) {
-                        return [int]$rawBody
-                    } elseif ($rawBody -is [System.Collections.IDictionary] -and $rawBody.ContainsKey('value')) {
-                        return [int]$rawBody['value']
-                    } else {
-                        return [int]$rawBody
-                    }
-                }
-                return $null
+                if (-not $resp -or $resp.status -ne 200) { return $null }
+                $rawBody = $resp.body
+                if ($null -eq $rawBody) { return $null }
+                if ($rawBody -is [int] -or $rawBody -is [long]) { return [int]$rawBody }
+                # Try @odata.count (from ?$count=true queries)
+                try {
+                    $odataCount = $rawBody.'@odata.count'
+                    if ($null -ne $odataCount) { return [int]$odataCount }
+                } catch {}
+                # Try .value as raw int
+                try {
+                    $val = $rawBody.'value'
+                    if ($null -ne $val -and ($val -is [int] -or $val -is [long])) { return [int]$val }
+                } catch {}
+                try { return [int]$rawBody } catch { return $null }
             }
 
             $intuneCount = & $getCount "intune"
@@ -6676,11 +6693,37 @@ function Update-DashboardStatistics {
             $osAndroid = & $getCount "osAndroid"
             $osLinux = & $getCount "osLinux"
 
-            # Verify all counts were retrieved
-            $allCounts = @($intuneCount, $autopilotCount, $entraCount, $stale30, $stale90, $stale180, $personalDevices, $corporateDevices)
-            if ($allCounts -contains $null) {
-                throw "One or more $count queries returned an error"
+            # Log which counts failed and use defaults for non-critical ones
+            $failedIds = @()
+            if ($null -eq $intuneCount)  { $failedIds += "intune" }
+            if ($null -eq $entraCount)   { $failedIds += "entra" }
+            if ($failedIds.Count -gt 0) {
+                throw "Core `$count queries failed: $($failedIds -join ', ')"
             }
+            # Non-critical counts — default to 0 if the filter query is unsupported
+            if ($null -eq $autopilotCount) {
+                # Autopilot $count not supported in batch — fetch count directly
+                try {
+                    $apResponse = Invoke-GraphRequestWithRetry -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$top=1&`$count=true" -Method GET
+                    $autopilotCount = if ($apResponse.'@odata.count') { [int]$apResponse.'@odata.count' } else { @($apResponse.value).Count }
+                    Write-Log "Autopilot count fetched directly: $autopilotCount"
+                } catch {
+                    Write-Log "Autopilot count fetch failed, trying full list: $_" -Severity "WARN"
+                    try {
+                        $apAll = Get-GraphPagedResults -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities"
+                        $autopilotCount = @($apAll).Count
+                        Write-Log "Autopilot count from full list: $autopilotCount"
+                    } catch {
+                        Write-Log "Autopilot endpoint unavailable, defaulting to 0: $_" -Severity "WARN"
+                        $autopilotCount = 0
+                    }
+                }
+            }
+            if ($null -eq $stale30)           { Write-Log "stale30 `$count returned null, defaulting to 0" -Severity "WARN";    $stale30 = 0 }
+            if ($null -eq $stale90)           { Write-Log "stale90 `$count returned null, defaulting to 0" -Severity "WARN";    $stale90 = 0 }
+            if ($null -eq $stale180)          { Write-Log "stale180 `$count returned null, defaulting to 0" -Severity "WARN";   $stale180 = 0 }
+            if ($null -eq $personalDevices)   { Write-Log "personal `$count returned null, defaulting to 0" -Severity "WARN";   $personalDevices = 0 }
+            if ($null -eq $corporateDevices)  { Write-Log "corporate `$count returned null, defaulting to 0" -Severity "WARN";  $corporateDevices = 0 }
 
             $countSuccess = $true
             $duration = (Get-Date) - $startTime
@@ -6737,7 +6780,12 @@ function Update-DashboardStatistics {
         # Fallback: full-fetch approach if $count batch failed
         if (-not $countSuccess) {
             $intuneDevices = @(Get-GraphPagedResults -Uri "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,managedDeviceOwnerType")
-            $autopilotDevices = @(Get-GraphPagedResults -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime")
+            $autopilotDevices = @()
+            try {
+                $autopilotDevices = @(Get-GraphPagedResults -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities")
+            } catch {
+                Write-Log "Autopilot fallback fetch failed (endpoint may be unavailable or permissions missing): $_" -Severity "WARN"
+            }
             $entraDevices = @(Get-GraphPagedResults -Uri "https://graph.microsoft.com/beta/devices?`$select=displayName,operatingSystem,operatingSystemVersion")
 
             Write-Log "Fallback: Total devices - Intune: $($intuneDevices.Count), Autopilot: $($autopilotDevices.Count), Entra: $($entraDevices.Count)"
@@ -6865,7 +6913,8 @@ function Update-DashboardStatistics {
             $pathGeometry.Figures.Add($pathFigure)
             $path.Data = $pathGeometry
 
-            $color = if ($platformColors.ContainsKey($platform.Name)) { $platformColors[$platform.Name] } else { $platformColors['Unknown'] }
+            $pName = if ($platform.Name) { $platform.Name } else { 'Unknown' }
+            $color = if ($platformColors[$pName]) { $platformColors[$pName] } else { $platformColors['Unknown'] }
             $path.Fill = New-Object System.Windows.Media.SolidColorBrush(
                 [System.Windows.Media.ColorConverter]::ConvertFromString($color))
 
@@ -6897,7 +6946,7 @@ function Update-DashboardStatistics {
     }
     catch {
         Write-Log "Error updating dashboard statistics: $_"
-        [System.Windows.MessageBox]::Show("Error updating dashboard statistics. Please ensure you are connected to MS Graph.")
+        [System.Windows.MessageBox]::Show("Error updating dashboard statistics: $_`n`nPlease ensure you are connected to MS Graph.")
     }
 }
 
@@ -7819,7 +7868,7 @@ $AutopilotDevicesCard.Add_MouseLeftButtonUp({
             try {
                 $Window.Cursor = [System.Windows.Input.Cursors]::Wait
                 Write-Log "Fetching all Autopilot devices..."
-                $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=displayName,serialNumber,lastContactedDateTime,model,manufacturer,userPrincipalName,systemFamily,managedDeviceOwnerType"
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities"
                 $autopilotDevices = Get-GraphPagedResults -Uri $uri
 
                 $deviceList = @()
