@@ -117,13 +117,7 @@ function Update-VersionDisplays {
                 $updateStatus.Text = "Update available"
                 $updateStatus.Foreground = "#4FD1C5"  # Highlight newer version
                 $updateStatus.Cursor = "Hand"
-                
-                # Remove existing handler if any
-                $updateStatus.RemoveHandler(
-                    [System.Windows.Controls.TextBlock]::MouseDownEvent,
-                    [System.Windows.Input.MouseButtonEventHandler] { param($s, $e) }
-                )
-                
+
                 # Add click handler
                 $updateStatus.AddHandler(
                     [System.Windows.Controls.TextBlock]::MouseDownEvent,
@@ -136,24 +130,12 @@ function Update-VersionDisplays {
                 $updateStatus.Text = "No Update available"
                 $updateStatus.Foreground = "#A0A0A0"  # Default gray color
                 $updateStatus.Cursor = "Arrow"
-                
-                # Remove click handler if exists
-                $updateStatus.RemoveHandler(
-                    [System.Windows.Controls.TextBlock]::MouseDownEvent,
-                    [System.Windows.Input.MouseButtonEventHandler] { param($s, $e) }
-                )
             }
         }
         else {
             $updateStatus.Text = "Version check unavailable"
             $updateStatus.Foreground = "#A0A0A0"
             $updateStatus.Cursor = "Arrow"
-            
-            # Remove click handler if exists
-            $updateStatus.RemoveHandler(
-                [System.Windows.Controls.TextBlock]::MouseDownEvent,
-                [System.Windows.Input.MouseButtonEventHandler] { param($s, $e) }
-            )
         }
     }
 }
@@ -191,6 +173,9 @@ if (-not ([System.Management.Automation.PSTypeName]'DeviceObject').Type) {
         public string IntuneDeviceId { get; set; }         // Intune managed device id
         public string AutopilotIdentityId { get; set; }    // Autopilot identity id
         public string EntraAccountEnabled { get; set; }    // "True"/"False"/null for disable feature
+        public string ComplianceState { get; set; }         // Intune compliance state
+        public string MdeDeviceId { get; set; }             // Defender for Endpoint machine id
+        public string ManagementAgent { get; set; }          // mdm, configurationManagerClientMdm, etc.
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -408,7 +393,8 @@ function ConvertTo-SafeDateTime {
     Title="Device Offboarding Manager (Preview)" Height="700" Width="1200" 
     Background="#F0F0F0"
     WindowStartupLocation="CenterScreen" 
-    ResizeMode="NoResize">
+    ResizeMode="CanResize"
+    MinHeight="600" MinWidth="900">
     
     <Window.Resources>
         <!-- Drop Shadow Effect -->
@@ -716,23 +702,6 @@ function ConvertTo-SafeDateTime {
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Toast Notification Style -->
-        <Style x:Key="ToastNotificationStyle" TargetType="Border">
-            <Setter Property="Background" Value="#1B2A47"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="16"/>
-            <Setter Property="Margin" Value="0,0,0,10"/>
-            <Setter Property="Effect">
-                <Setter.Value>
-                    <DropShadowEffect ShadowDepth="2"
-                                    Direction="315"
-                                    Color="#000000"
-                                    Opacity="0.25"
-                                    BlurRadius="4"/>
                 </Setter.Value>
             </Setter>
         </Style>
@@ -1118,7 +1087,7 @@ function ConvertTo-SafeDateTime {
                                              FontSize="14"
                                              Foreground="#A0AEC0"
                                              Margin="0,0,0,8"/>
-                                    <TextBlock Text="• Soon: Defender for Endpoint"
+                                    <TextBlock Text="• Defender for Endpoint"
                                              FontSize="14"
                                              Foreground="#A0AEC0"
                                              Margin="0,0,0,8"/>
@@ -1167,10 +1136,24 @@ function ConvertTo-SafeDateTime {
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                
+
+                <!-- Platform Filter -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="20,10,20,4" VerticalAlignment="Center">
+                    <TextBlock Text="Platform:" Foreground="#A0AEC0" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="DashboardPlatformFilter" Width="160" SelectedIndex="0">
+                        <ComboBoxItem Content="All Platforms"/>
+                        <ComboBoxItem Content="Windows"/>
+                        <ComboBoxItem Content="macOS"/>
+                        <ComboBoxItem Content="iOS"/>
+                        <ComboBoxItem Content="Android"/>
+                        <ComboBoxItem Content="Linux"/>
+                    </ComboBox>
+                </StackPanel>
+
                 <!-- Top Row Statistics -->
-                <UniformGrid Grid.Row="0" Rows="1" Margin="20,10,20,10">
+                <UniformGrid Grid.Row="1" Rows="1" Margin="20,10,20,10">
                     <Border x:Name="IntuneDevicesCard" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Cursor="Hand">
                         <Border.Style>
                             <Style TargetType="Border">
@@ -1290,7 +1273,7 @@ function ConvertTo-SafeDateTime {
                 </UniformGrid>
 
                 <!-- Middle Row - Stale Devices -->
-                <UniformGrid Grid.Row="1" Rows="1" Margin="20,10,20,10">
+                <UniformGrid Grid.Row="2" Rows="1" Margin="20,10,20,10">
                     <Border x:Name="StaleDevices30Card" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Cursor="Hand">
                         <Border.Style>
                             <Style TargetType="Border">
@@ -1431,7 +1414,7 @@ function ConvertTo-SafeDateTime {
                 </UniformGrid>
 
                 <!-- Bottom Row - Personal/Corporate and Charts -->
-                <Grid Grid.Row="2" Margin="20,10,20,20">
+                <Grid Grid.Row="3" Margin="20,10,20,20">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
@@ -1581,6 +1564,7 @@ function ConvertTo-SafeDateTime {
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -1597,12 +1581,10 @@ function ConvertTo-SafeDateTime {
 
                     <ComboBox x:Name="dropdown" 
                               Margin="0,0,8,0"/>
-                    <TextBox x:Name="SearchInputText" 
-                             Grid.Column="1" 
+                    <TextBox x:Name="SearchInputText"
+                             Grid.Column="1"
                              Margin="0,0,8,0"
-                             TextWrapping="Wrap"
-                             AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Auto"/>
+                             TextWrapping="NoWrap"/>
                     <Button x:Name="bulk_import_button" 
                             Grid.Column="2" 
                             Content="Bulk Import" 
@@ -1612,9 +1594,30 @@ function ConvertTo-SafeDateTime {
                             Content="Search"/>
                 </Grid>
 
+                <!-- Filter Row -->
+                <Grid x:Name="FilterRow" Grid.Row="3" Margin="0,0,0,4" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="50"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="70"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="FilterDeviceName" Grid.Column="1" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
+                    <TextBox x:Name="FilterSerialNumber" Grid.Column="2" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
+                    <TextBox x:Name="FilterOS" Grid.Column="3" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
+                    <TextBox x:Name="FilterPrimaryUser" Grid.Column="4" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
+                    <TextBox x:Name="FilterCompliance" Grid.Column="8" Height="24" FontSize="11" Margin="1,0" VerticalContentAlignment="Center"/>
+                </Grid>
+
                 <!-- Results Grid -->
-                <DataGrid x:Name="SearchResultsDataGrid" 
-                          Grid.Row="3"
+                <DataGrid x:Name="SearchResultsDataGrid"
+                          Grid.Row="4"
                           Margin="0,0,0,15"
                           AutoGenerateColumns="False"
                           IsReadOnly="False"
@@ -1654,15 +1657,27 @@ function ConvertTo-SafeDateTime {
                                                   Header="Intune Last Contact" 
                                                   Width="*"
                                                   IsReadOnly="True"/>
-                        <DataGridTextColumn Binding="{Binding AutopilotLastContact}" 
-                                                  Header="Autopilot Last Contact" 
+                        <DataGridTextColumn Binding="{Binding AutopilotLastContact}"
+                                                  Header="Autopilot Last Contact"
                                                   Width="*"
                                                   IsReadOnly="True"/>
+                        <DataGridTextColumn Binding="{Binding ComplianceState}"
+                                                  Header="Compliance"
+                                                  Width="*"
+                                                  IsReadOnly="True"/>
+                        <DataGridTemplateColumn Header="Groups" Width="70">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="View" Foreground="#0078D4" Cursor="Hand" Tag="{Binding EntraDeviceId}"
+                                               TextDecorations="Underline" FontSize="12"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                     </DataGrid.Columns>
                 </DataGrid>
 
                 <!-- Status Section -->
-                <UniformGrid Grid.Row="4"
+                <UniformGrid Grid.Row="5"
                            Rows="1"
                            Margin="0,0,0,15">
                     <!-- Intune Status -->
@@ -1745,7 +1760,7 @@ function ConvertTo-SafeDateTime {
                 </UniformGrid>
 
                 <!-- Bottom Section -->
-                <Grid Grid.Row="5">
+                <Grid Grid.Row="6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
@@ -1951,40 +1966,35 @@ function ConvertTo-SafeDateTime {
                                 Height="120"
                                 Margin="0,0,15,15"
                                 Content="OS-Specific Device List"
-                                Tag="Filter devices by operating system version"
-                                IsEnabled="False"/>
+                                Tag="Filter devices by operating system version"/>
                         <Button x:Name="PlaybookNotLatestOS"
                                 Style="{StaticResource PlaybookButtonStyle}"
                                 Width="380"
                                 Height="120"
                                 Margin="0,0,15,15"
                                 Content="Outdated OS Report"
-                                Tag="Find devices running older operating system versions"
-                                IsEnabled="False"/>
+                                Tag="Find devices running older operating system versions"/>
                         <Button x:Name="PlaybookEOLOS"
                                 Style="{StaticResource PlaybookButtonStyle}"
                                 Width="380"
                                 Height="120"
                                 Margin="0,0,15,15"
                                 Content="End-of-Life OS Report"
-                                Tag="Identify devices running unsupported OS versions"
-                                IsEnabled="False"/>
+                                Tag="Identify devices running unsupported OS versions"/>
                         <Button x:Name="PlaybookBitLocker"
                                 Style="{StaticResource PlaybookButtonStyle}"
                                 Width="380"
                                 Height="120"
                                 Margin="0,0,15,15"
                                 Content="BitLocker Key Report"
-                                Tag="View BitLocker recovery keys for Windows devices"
-                                IsEnabled="False"/>
+                                Tag="View BitLocker recovery keys for Windows devices"/>
                         <Button x:Name="PlaybookFileVault"
                                 Style="{StaticResource PlaybookButtonStyle}"
                                 Width="380"
                                 Height="120"
                                 Margin="0,0,15,15"
                                 Content="FileVault Key Report"
-                                Tag="View FileVault recovery keys for macOS devices"
-                                IsEnabled="False"/>
+                                Tag="View FileVault recovery keys for macOS devices"/>
                     </WrapPanel>
                 </ScrollViewer>
 
@@ -2467,19 +2477,23 @@ function ConvertTo-SafeDateTime {
                                  Grid.Column="1"
                                  Style="{StaticResource AuthTextBoxStyle}"/>
 
-                        <!-- Import Button -->
-                        <Button x:Name="ImportCertButton"
-                                Grid.Row="3"
-                                Grid.Column="1"
-                                Content="Import"
-                                HorizontalAlignment="Right"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Height="32"
-                                Width="120"
-                                Margin="0,12,0,0"/>
+                        <!-- Import and Save Buttons -->
+                        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                            <Button x:Name="SaveCertButton"
+                                    Content="Save Config"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Height="32"
+                                    Width="120"
+                                    Margin="0,0,8,0"/>
+                            <Button x:Name="ImportCertButton"
+                                    Content="Import"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Height="32"
+                                    Width="120"/>
+                        </StackPanel>
 
                         <!-- Help Text -->
-                        <TextBlock Grid.Row="4" 
+                        <TextBlock Grid.Row="4"
                                   Grid.Column="0"
                                   Grid.ColumnSpan="2"
                                   Text="Import format: JSON file (.json) containing AppId, TenantId, and Thumbprint"
@@ -2536,19 +2550,23 @@ function ConvertTo-SafeDateTime {
                                     Grid.Column="1"
                                     Style="{StaticResource AuthPasswordBoxStyle}"/>
 
-                        <!-- Import Button -->
-                        <Button x:Name="ImportSecretButton"
-                                Grid.Row="3"
-                                Grid.Column="1"
-                                Content="Import"
-                                HorizontalAlignment="Right"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Height="32"
-                                Width="120"
-                                Margin="0,12,0,0"/>
+                        <!-- Import and Save Buttons -->
+                        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                            <Button x:Name="SaveSecretButton"
+                                    Content="Save Config"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Height="32"
+                                    Width="120"
+                                    Margin="0,0,8,0"/>
+                            <Button x:Name="ImportSecretButton"
+                                    Content="Import"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Height="32"
+                                    Width="120"/>
+                        </StackPanel>
 
                         <!-- Help Text -->
-                        <TextBlock Grid.Row="4" 
+                        <TextBlock Grid.Row="4"
                                   Grid.Column="0"
                                   Grid.ColumnSpan="2"
                                   Text="Import format: JSON file (.json) containing AppId, TenantId, and ClientSecret"
@@ -2882,6 +2900,10 @@ $script:requiredPermissions = @(
     @{
         Permission = "BitlockerKey.Read.All"
         Reason     = "Required to read BitLocker recovery keys for device offboarding"
+    },
+    @{
+        Permission = "DeviceLocalCredential.Read.All"
+        Reason     = "Required to read LAPS passwords for device offboarding"
     }
 )
 
@@ -2915,6 +2937,29 @@ function Show-AuthenticationDialog {
     $cancelAuthButton = $authWindow.FindName('CancelAuthButton')
     $importCertButton = $authWindow.FindName('ImportCertButton')
     $importSecretButton = $authWindow.FindName('ImportSecretButton')
+    $saveCertButton = $authWindow.FindName('SaveCertButton')
+    $saveSecretButton = $authWindow.FindName('SaveSecretButton')
+
+    # Auto-load saved config if available
+    $certConfigPath = [System.IO.Path]::Combine($script:ConfigDirectory, "cert_config.json")
+    $secretConfigPath = [System.IO.Path]::Combine($script:ConfigDirectory, "secret_config.json")
+    if (Test-Path $certConfigPath) {
+        try {
+            $savedCert = Get-Content $certConfigPath -Raw | ConvertFrom-Json
+            if ($savedCert.AppId) { $authWindow.FindName('CertAppId').Text = $savedCert.AppId }
+            if ($savedCert.TenantId) { $authWindow.FindName('CertTenantId').Text = $savedCert.TenantId }
+            if ($savedCert.Thumbprint) { $authWindow.FindName('CertThumbprint').Text = $savedCert.Thumbprint }
+        }
+        catch { }
+    }
+    if (Test-Path $secretConfigPath) {
+        try {
+            $savedSecret = Get-Content $secretConfigPath -Raw | ConvertFrom-Json
+            if ($savedSecret.AppId) { $authWindow.FindName('SecretAppId').Text = $savedSecret.AppId }
+            if ($savedSecret.TenantId) { $authWindow.FindName('SecretTenantId').Text = $savedSecret.TenantId }
+        }
+        catch { }
+    }
 
     # Add event handlers for radio buttons
     $certificateAuth.Add_Checked({
@@ -2998,6 +3043,74 @@ function Show-AuthenticationDialog {
                         [System.Windows.MessageBoxImage]::Error
                     )
                 }
+            }
+        })
+
+    # Save config button handlers
+    $saveCertButton.Add_Click({
+            $appId = $authWindow.FindName('CertAppId').Text
+            $tenantId = $authWindow.FindName('CertTenantId').Text
+            $thumbprint = $authWindow.FindName('CertThumbprint').Text
+            if ([string]::IsNullOrWhiteSpace($appId) -or [string]::IsNullOrWhiteSpace($tenantId) -or [string]::IsNullOrWhiteSpace($thumbprint)) {
+                [System.Windows.MessageBox]::Show(
+                    "Please fill in App ID, Tenant ID, and Thumbprint before saving.",
+                    "Validation Error",
+                    [System.Windows.MessageBoxButton]::OK,
+                    [System.Windows.MessageBoxImage]::Warning
+                )
+                return
+            }
+            try {
+                $config = @{ AppId = $appId; TenantId = $tenantId; Thumbprint = $thumbprint }
+                $configPath = [System.IO.Path]::Combine($script:ConfigDirectory, "cert_config.json")
+                $config | ConvertTo-Json | Set-Content -Path $configPath -Force
+                [System.Windows.MessageBox]::Show(
+                    "Certificate configuration saved. It will be auto-loaded next time you open the authentication dialog.",
+                    "Configuration Saved",
+                    [System.Windows.MessageBoxButton]::OK,
+                    [System.Windows.MessageBoxImage]::Information
+                )
+            }
+            catch {
+                [System.Windows.MessageBox]::Show(
+                    "Error saving configuration: $_",
+                    "Error",
+                    [System.Windows.MessageBoxButton]::OK,
+                    [System.Windows.MessageBoxImage]::Error
+                )
+            }
+        })
+
+    $saveSecretButton.Add_Click({
+            $appId = $authWindow.FindName('SecretAppId').Text
+            $tenantId = $authWindow.FindName('SecretTenantId').Text
+            if ([string]::IsNullOrWhiteSpace($appId) -or [string]::IsNullOrWhiteSpace($tenantId)) {
+                [System.Windows.MessageBox]::Show(
+                    "Please fill in App ID and Tenant ID before saving.",
+                    "Validation Error",
+                    [System.Windows.MessageBoxButton]::OK,
+                    [System.Windows.MessageBoxImage]::Warning
+                )
+                return
+            }
+            try {
+                $config = @{ AppId = $appId; TenantId = $tenantId }
+                $configPath = [System.IO.Path]::Combine($script:ConfigDirectory, "secret_config.json")
+                $config | ConvertTo-Json | Set-Content -Path $configPath -Force
+                [System.Windows.MessageBox]::Show(
+                    "Configuration saved (App ID and Tenant ID only). The client secret is not persisted for security reasons and must be entered each session.",
+                    "Configuration Saved",
+                    [System.Windows.MessageBoxButton]::OK,
+                    [System.Windows.MessageBoxImage]::Information
+                )
+            }
+            catch {
+                [System.Windows.MessageBox]::Show(
+                    "Error saving configuration: $_",
+                    "Error",
+                    [System.Windows.MessageBoxButton]::OK,
+                    [System.Windows.MessageBoxImage]::Error
+                )
             }
         })
 
@@ -3311,6 +3424,12 @@ function Connect-ToGraph {
                 $ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $AuthDetails.AppId, $SecuredPasswordPassword
                 
                 $connectionResult = Connect-MgGraph -TenantId $AuthDetails.TenantId -ClientSecretCredential $ClientSecretCredential -NoWelcome -ErrorAction Stop
+
+                # Clear sensitive credentials from memory
+                $SecuredPasswordPassword = $null
+                $ClientSecretCredential = $null
+                $AuthDetails.Secret = $null
+                $AuthDetails.Remove('Secret')
             }
             default {
                 throw "Invalid authentication method specified"
@@ -3423,6 +3542,14 @@ if (-not (Test-Path $script:LogDirectory)) { New-Item -Path $script:LogDirectory
 $script:LogFilePath = [System.IO.Path]::Combine($script:LogDirectory, "DOM_$(Get-Date -Format 'yyyyMMdd_HHmmss').log")
 $script:AdminUPN = $null
 
+# Config directory for saved authentication settings
+$script:ConfigDirectory = [System.IO.Path]::Combine(
+    [Environment]::GetFolderPath("LocalApplicationData"),
+    "DeviceOffboardingManager")
+if (-not (Test-Path $script:ConfigDirectory)) {
+    New-Item -Path $script:ConfigDirectory -ItemType Directory -Force | Out-Null
+}
+
 function Write-Log {
     param(
         [Parameter(Mandatory = $true)]
@@ -3487,6 +3614,179 @@ function Export-DeviceListToCSV {
     }
 }
 
+function Export-OffboardingReport {
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$Results,
+        [Parameter(Mandatory = $false)]
+        [string]$DefaultFileName = "OffboardingReport_$(Get-Date -Format 'yyyyMMdd_HHmmss').html"
+    )
+
+    try {
+        $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+        $saveFileDialog.Filter = "HTML Files (*.html)|*.html"
+        $saveFileDialog.DefaultExt = "html"
+        $saveFileDialog.FileName = $DefaultFileName
+        $saveFileDialog.Title = "Export Offboarding Report"
+
+        if ($saveFileDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return $false }
+
+        $exportPath = $saveFileDialog.FileName
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $adminUPN = [System.Web.HttpUtility]::HtmlEncode($(if ($script:AdminUPN) { $script:AdminUPN } else { "N/A" }))
+        $version = Get-ScriptVersion
+
+        # Calculate summary stats
+        $total = $Results.Count
+        $successCount = 0
+        $partialCount = 0
+        $failedCount = 0
+        foreach ($r in $Results) {
+            $svc = 0; $ok = 0
+            if ($r.EntraID.Found) { $svc++; if ($r.EntraID.Success) { $ok++ } }
+            if ($r.Intune.Found) { $svc++; if ($r.Intune.Success) { $ok++ } }
+            if ($r.Autopilot.Found) { $svc++; if ($r.Autopilot.Success) { $ok++ } }
+            if ($r.MDE -and $r.MDE.Found) { $svc++; if ($r.MDE.Success) { $ok++ } }
+            if ($svc -eq 0) { $failedCount++ }
+            elseif ($ok -eq $svc) { $successCount++ }
+            elseif ($ok -gt 0) { $partialCount++ }
+            else { $failedCount++ }
+        }
+
+        # Build device rows
+        $deviceRows = ""
+        foreach ($r in $Results) {
+            $entraStatus = if ($r.EntraID.Found) { if ($r.EntraID.Success) { "Removed" } else { "Failed" } } else { "N/A" }
+            $entraClass = if (-not $r.EntraID.Found) { "na" } elseif ($r.EntraID.Success) { "success" } else { "failed" }
+            $entraError = if ($r.EntraID.Error) { "<br><small>$([System.Web.HttpUtility]::HtmlEncode($r.EntraID.Error))</small>" } else { "" }
+
+            $intuneStatus = if ($r.Intune.Found) { if ($r.Intune.Success) { "Removed" } else { "Failed" } } else { "N/A" }
+            $intuneClass = if (-not $r.Intune.Found) { "na" } elseif ($r.Intune.Success) { "success" } else { "failed" }
+            $intuneError = if ($r.Intune.Error) { "<br><small>$([System.Web.HttpUtility]::HtmlEncode($r.Intune.Error))</small>" } else { "" }
+
+            $autopilotStatus = if ($r.Autopilot.Found) { if ($r.Autopilot.Success) { "Removed" } else { "Failed" } } else { "N/A" }
+            $autopilotClass = if (-not $r.Autopilot.Found) { "na" } elseif ($r.Autopilot.Success) { "success" } else { "failed" }
+            $autopilotError = if ($r.Autopilot.Error) { "<br><small>$([System.Web.HttpUtility]::HtmlEncode($r.Autopilot.Error))</small>" } else { "" }
+
+            $mdeStatus = if ($r.MDE -and $r.MDE.Found) { if ($r.MDE.Success) { "Offboarded" } else { "Failed" } } else { "N/A" }
+            $mdeClass = if (-not $r.MDE -or -not $r.MDE.Found) { "na" } elseif ($r.MDE.Success) { "success" } else { "failed" }
+            $mdeError = if ($r.MDE -and $r.MDE.Error) { "<br><small>$([System.Web.HttpUtility]::HtmlEncode($r.MDE.Error))</small>" } else { "" }
+
+            $deviceName = [System.Web.HttpUtility]::HtmlEncode($r.DeviceName)
+            $serialNum = if ($r.SerialNumber) { [System.Web.HttpUtility]::HtmlEncode($r.SerialNumber) } else { "N/A" }
+
+            # Determine row class
+            $svc = 0; $ok = 0
+            if ($r.EntraID.Found) { $svc++; if ($r.EntraID.Success) { $ok++ } }
+            if ($r.Intune.Found) { $svc++; if ($r.Intune.Success) { $ok++ } }
+            if ($r.Autopilot.Found) { $svc++; if ($r.Autopilot.Success) { $ok++ } }
+            if ($r.MDE -and $r.MDE.Found) { $svc++; if ($r.MDE.Success) { $ok++ } }
+            $rowClass = if ($svc -eq 0) { "row-failed" } elseif ($ok -eq $svc) { "row-success" } elseif ($ok -gt 0) { "row-partial" } else { "row-failed" }
+
+            $deviceRows += @"
+            <tr class="$rowClass">
+                <td>$deviceName</td>
+                <td>$serialNum</td>
+                <td class="$entraClass">$entraStatus$entraError</td>
+                <td class="$intuneClass">$intuneStatus$intuneError</td>
+                <td class="$autopilotClass">$autopilotStatus$autopilotError</td>
+                <td class="$mdeClass">$mdeStatus$mdeError</td>
+            </tr>
+"@
+        }
+
+        $html = @"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Device Offboarding Report</title>
+<style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; color: #1a202c; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .header { background: #1B2A47; color: white; padding: 24px 32px; border-radius: 8px 8px 0 0; }
+    .header h1 { margin: 0 0 8px 0; font-size: 22px; }
+    .header .meta { font-size: 12px; color: #a0aec0; }
+    .summary { display: flex; gap: 16px; padding: 20px 32px; background: white; border-bottom: 1px solid #e2e8f0; }
+    .stat { flex: 1; text-align: center; padding: 12px; border-radius: 6px; }
+    .stat .number { font-size: 28px; font-weight: bold; }
+    .stat .label { font-size: 12px; color: #718096; margin-top: 4px; }
+    .stat-total { background: #edf2f7; }
+    .stat-success { background: #f0fff4; }
+    .stat-success .number { color: #48bb78; }
+    .stat-partial { background: #fffbeb; }
+    .stat-partial .number { color: #ecc94b; }
+    .stat-failed { background: #fef2f2; }
+    .stat-failed .number { color: #f56565; }
+    table { width: 100%; border-collapse: collapse; background: white; }
+    th { background: #edf2f7; padding: 10px 12px; text-align: left; font-size: 12px; font-weight: 600; color: #4a5568; border-bottom: 2px solid #e2e8f0; }
+    td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e2e8f0; }
+    td small { color: #f56565; }
+    .row-success { border-left: 3px solid #48bb78; }
+    .row-partial { border-left: 3px solid #ecc94b; }
+    .row-failed { border-left: 3px solid #f56565; }
+    .success { color: #48bb78; font-weight: 500; }
+    .failed { color: #f56565; font-weight: 500; }
+    .na { color: #a0aec0; }
+    .footer { padding: 16px 32px; background: white; border-radius: 0 0 8px 8px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #a0aec0; text-align: center; }
+    @media print { body { background: white; padding: 0; } .container { max-width: 100%; } }
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Device Offboarding Report</h1>
+        <div class="meta">Generated: $timestamp | Admin: $adminUPN | Device Offboarding Manager $version</div>
+    </div>
+    <div class="summary">
+        <div class="stat stat-total"><div class="number">$total</div><div class="label">Total Devices</div></div>
+        <div class="stat stat-success"><div class="number">$successCount</div><div class="label">Successful</div></div>
+        <div class="stat stat-partial"><div class="number">$partialCount</div><div class="label">Partial</div></div>
+        <div class="stat stat-failed"><div class="number">$failedCount</div><div class="label">Failed</div></div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Device Name</th>
+                <th>Serial Number</th>
+                <th>Entra ID</th>
+                <th>Intune</th>
+                <th>Autopilot</th>
+                <th>MDE</th>
+            </tr>
+        </thead>
+        <tbody>
+$deviceRows
+        </tbody>
+    </table>
+    <div class="footer">Device Offboarding Manager - Audit Report</div>
+</div>
+</body>
+</html>
+"@
+
+        [System.IO.File]::WriteAllText($exportPath, $html)
+        Write-Log "Exported offboarding report to: $exportPath" -Severity "AUDIT"
+        [System.Windows.MessageBox]::Show(
+            "Report exported successfully to:`n$exportPath",
+            "Export Successful",
+            [System.Windows.MessageBoxButton]::OK,
+            [System.Windows.MessageBoxImage]::Information
+        )
+        return $true
+    }
+    catch {
+        Write-Log "Error exporting offboarding report: $_" -Severity "ERROR"
+        [System.Windows.MessageBox]::Show(
+            "Error exporting report: $_",
+            "Export Error",
+            [System.Windows.MessageBoxButton]::OK,
+            [System.Windows.MessageBoxImage]::Error
+        )
+        return $false
+    }
+}
+
 function Invoke-DeviceSearch {
     param(
         [Parameter(Mandatory = $true)]
@@ -3527,7 +3827,7 @@ function Invoke-DeviceSearch {
                 # Batch Entra + Intune queries together
                 $batchRequests = @(
                     @{ id = "entra"; method = "GET"; url = "/devices?`$filter=displayName eq '$SearchText'&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds" }
-                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=deviceName eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId" }
+                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=deviceName eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
                 )
                 $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
                 $entraResp = $batchResponses | Where-Object { $_.id -eq "entra" }
@@ -3582,6 +3882,8 @@ function Invoke-DeviceSearch {
                         $CombinedDevice.IntuneDeviceId = $matchingIntuneDevice?.id
                         $CombinedDevice.AutopilotIdentityId = $matchingAutopilotDevice?.id
                         $CombinedDevice.EntraAccountEnabled = if ($null -ne $AADDevice.accountEnabled) { $AADDevice.accountEnabled.ToString() } else { $null }
+                        $CombinedDevice.ComplianceState = $matchingIntuneDevice?.complianceState
+                        $CombinedDevice.ManagementAgent = $matchingIntuneDevice?.managementAgent
 
                         $searchResults.Add($CombinedDevice)
                         $AADCount++
@@ -3589,7 +3891,7 @@ function Invoke-DeviceSearch {
                         if ($matchingAutopilotDevice) { $AutopilotCount++ }
                     }
                 }
-                
+
                 # Process Intune devices not in Entra ID
                 if ($IntuneDevices) {
                     foreach ($IntuneDevice in $IntuneDevices) {
@@ -3617,13 +3919,15 @@ function Invoke-DeviceSearch {
                         $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $matchingAutopilotDevice.lastContactedDateTime
                         $CombinedDevice.IntuneDeviceId = $IntuneDevice.id
                         $CombinedDevice.AutopilotIdentityId = $matchingAutopilotDevice?.id
+                        $CombinedDevice.ComplianceState = $IntuneDevice.complianceState
+                        $CombinedDevice.ManagementAgent = $IntuneDevice.managementAgent
 
                         $searchResults.Add($CombinedDevice)
                         $IntuneCount++
                         if ($matchingAutopilotDevice) { $AutopilotCount++ }
                     }
                 }
-                
+
                 # Process Autopilot devices not in Entra ID or Intune
                 if ($AutopilotDevices) {
                     foreach ($AutopilotDevice in $AutopilotDevices) {
@@ -3650,7 +3954,7 @@ function Invoke-DeviceSearch {
             elseif ($SearchOption -eq "Serialnumber") {
                 # Batch Intune + Autopilot queries together
                 $batchRequests = @(
-                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=serialNumber eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId" }
+                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=serialNumber eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
                     @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$SearchText')&`$select=id,displayName,serialNumber,lastContactedDateTime" }
                 )
                 $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
@@ -3684,6 +3988,8 @@ function Invoke-DeviceSearch {
                             $CombinedDevice.IntuneDeviceId = $IntuneDevice.id
                             $CombinedDevice.AutopilotIdentityId = $matchingAutopilotDevice?.id
                             $CombinedDevice.EntraAccountEnabled = if ($null -ne $AADDevice -and $null -ne $AADDevice.accountEnabled) { $AADDevice.accountEnabled.ToString() } else { $null }
+                            $CombinedDevice.ComplianceState = $IntuneDevice.complianceState
+                            $CombinedDevice.ManagementAgent = $IntuneDevice.managementAgent
 
                             $searchResults.Add($CombinedDevice)
                             if ($AADDevice) { $AADCount++ }
@@ -3729,7 +4035,7 @@ function Invoke-DeviceSearch {
                     # Cross-reference Intune by azureADDeviceId for accurate matching
                     $IntuneDevice = $null
                     if ($AADDevice.deviceId) {
-                        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=azureADDeviceId eq '$($AADDevice.deviceId)'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId"
+                        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=azureADDeviceId eq '$($AADDevice.deviceId)'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent"
                         $IntuneDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                         if ($IntuneDevice) { $IntuneCount++ }
                     }
@@ -3766,6 +4072,8 @@ function Invoke-DeviceSearch {
                     $CombinedDevice.IntuneDeviceId = $IntuneDevice?.id
                     $CombinedDevice.AutopilotIdentityId = $AutopilotDevice?.id
                     $CombinedDevice.EntraAccountEnabled = if ($null -ne $AADDevice.accountEnabled) { $AADDevice.accountEnabled.ToString() } else { $null }
+                    $CombinedDevice.ComplianceState = $IntuneDevice?.complianceState
+                    $CombinedDevice.ManagementAgent = $IntuneDevice?.managementAgent
 
                     $searchResults.Add($CombinedDevice)
                 }
@@ -3773,8 +4081,123 @@ function Invoke-DeviceSearch {
                     Write-Log "No device found with ID: $SearchText"
                 }
             }
+            elseif ($SearchOption -eq "Contains (partial match)") {
+                # Batch Entra (startsWith) + Intune (contains) queries
+                $batchRequests = @(
+                    @{ id = "entra"; method = "GET"; url = "/devices?`$filter=startsWith(displayName,'$SearchText')&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds&`$count=true"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=contains(deviceName,'$SearchText')&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
+                )
+                $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
+                $entraResp = $batchResponses | Where-Object { $_.id -eq "entra" }
+                $intuneResp = $batchResponses | Where-Object { $_.id -eq "intune" }
+                $AADDevices = if ($entraResp -and $entraResp.status -eq 200 -and $entraResp.body.value) { $entraResp.body.value } else { @() }
+                $IntuneDevices = if ($intuneResp -and $intuneResp.status -eq 200 -and $intuneResp.body.value) { $intuneResp.body.value } else { @() }
+
+                # Pre-fetch Autopilot devices for client-side filtering
+                $AutopilotDevices = @()
+                try {
+                    $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime"
+                    $allAutopilot = Get-GraphPagedResults -Uri $uri
+                    $AutopilotDevices = $allAutopilot | Where-Object { $_.displayName -and $_.displayName -like "*$SearchText*" }
+                } catch {
+                    Write-Log "Error fetching Autopilot devices for partial match: $_"
+                }
+
+                # Process Entra ID devices
+                if ($AADDevices) {
+                    foreach ($AADDevice in $AADDevices) {
+                        $matchingIntuneDevice = $IntuneDevices | Where-Object { $_.deviceName -eq $AADDevice.displayName } | Select-Object -First 1
+                        $matchingAutopilotDevice = $AutopilotDevices | Where-Object { $_.displayName -eq $AADDevice.displayName } | Select-Object -First 1
+
+                        if (-not $matchingAutopilotDevice -and $matchingIntuneDevice -and $matchingIntuneDevice.serialNumber) {
+                            $matchingAutopilotDevice = $AutopilotDevices | Where-Object { $_.serialNumber -eq $matchingIntuneDevice.serialNumber } | Select-Object -First 1
+                        }
+
+                        $CombinedDevice = New-Object DeviceObject
+                        $CombinedDevice.IsSelected = $false
+                        $CombinedDevice.DeviceName = $AADDevice.displayName
+                        $CombinedDevice.SerialNumber = $matchingIntuneDevice?.serialNumber ?? $matchingAutopilotDevice?.serialNumber
+                        if (-not $CombinedDevice.SerialNumber -and $AADDevice.physicalIds) {
+                            foreach ($physicalId in $AADDevice.physicalIds) {
+                                if ($physicalId -match '\[SerialNumber\]:(.+)') {
+                                    $CombinedDevice.SerialNumber = $matches[1].Trim()
+                                    break
+                                }
+                            }
+                        }
+                        $CombinedDevice.OperatingSystem = $AADDevice.operatingSystem
+                        $CombinedDevice.PrimaryUser = $matchingIntuneDevice?.userDisplayName
+                        $CombinedDevice.AzureADLastContact = ConvertTo-SafeDateTime -dateString $AADDevice.approximateLastSignInDateTime
+                        $CombinedDevice.IntuneLastContact = ConvertTo-SafeDateTime -dateString $matchingIntuneDevice.lastSyncDateTime
+                        $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $matchingAutopilotDevice.lastContactedDateTime
+                        $CombinedDevice.EntraDeviceId = $AADDevice.id
+                        $CombinedDevice.EntraDeviceObjectId = $AADDevice.deviceId
+                        $CombinedDevice.IntuneDeviceId = $matchingIntuneDevice?.id
+                        $CombinedDevice.AutopilotIdentityId = $matchingAutopilotDevice?.id
+                        $CombinedDevice.EntraAccountEnabled = if ($null -ne $AADDevice.accountEnabled) { $AADDevice.accountEnabled.ToString() } else { $null }
+                        $CombinedDevice.ComplianceState = $matchingIntuneDevice?.complianceState
+                        $CombinedDevice.ManagementAgent = $matchingIntuneDevice?.managementAgent
+
+                        $searchResults.Add($CombinedDevice)
+                        $AADCount++
+                        if ($matchingIntuneDevice) { $IntuneCount++ }
+                        if ($matchingAutopilotDevice) { $AutopilotCount++ }
+                    }
+                }
+
+                # Process Intune devices not in Entra ID results
+                if ($IntuneDevices) {
+                    foreach ($IntuneDevice in $IntuneDevices) {
+                        if ($searchResults | Where-Object { $_.DeviceName -eq $IntuneDevice.deviceName }) {
+                            continue
+                        }
+                        $matchingAutopilotDevice = $AutopilotDevices | Where-Object { $_.displayName -eq $IntuneDevice.deviceName } | Select-Object -First 1
+                        if (-not $matchingAutopilotDevice -and $IntuneDevice.serialNumber) {
+                            $matchingAutopilotDevice = $AutopilotDevices | Where-Object { $_.serialNumber -eq $IntuneDevice.serialNumber } | Select-Object -First 1
+                        }
+
+                        $CombinedDevice = New-Object DeviceObject
+                        $CombinedDevice.IsSelected = $false
+                        $CombinedDevice.DeviceName = $IntuneDevice.deviceName
+                        $CombinedDevice.SerialNumber = $IntuneDevice.serialNumber ?? $matchingAutopilotDevice?.serialNumber
+                        $CombinedDevice.OperatingSystem = $IntuneDevice.operatingSystem
+                        $CombinedDevice.PrimaryUser = $IntuneDevice.userDisplayName
+                        $CombinedDevice.IntuneLastContact = ConvertTo-SafeDateTime -dateString $IntuneDevice.lastSyncDateTime
+                        $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $matchingAutopilotDevice.lastContactedDateTime
+                        $CombinedDevice.IntuneDeviceId = $IntuneDevice.id
+                        $CombinedDevice.AutopilotIdentityId = $matchingAutopilotDevice?.id
+                        $CombinedDevice.ComplianceState = $IntuneDevice.complianceState
+                        $CombinedDevice.ManagementAgent = $IntuneDevice.managementAgent
+
+                        $searchResults.Add($CombinedDevice)
+                        $IntuneCount++
+                        if ($matchingAutopilotDevice) { $AutopilotCount++ }
+                    }
+                }
+
+                # Process Autopilot-only devices
+                if ($AutopilotDevices) {
+                    foreach ($AutopilotDevice in $AutopilotDevices) {
+                        if ($searchResults | Where-Object {
+                                $_.DeviceName -eq $AutopilotDevice.displayName -or
+                                ($_.SerialNumber -and $_.SerialNumber -eq $AutopilotDevice.serialNumber)
+                            }) {
+                            continue
+                        }
+                        $CombinedDevice = New-Object DeviceObject
+                        $CombinedDevice.IsSelected = $false
+                        $CombinedDevice.DeviceName = $AutopilotDevice.displayName
+                        $CombinedDevice.SerialNumber = $AutopilotDevice.serialNumber
+                        $CombinedDevice.AutopilotLastContact = ConvertTo-SafeDateTime -dateString $AutopilotDevice.lastContactedDateTime
+                        $CombinedDevice.AutopilotIdentityId = $AutopilotDevice.id
+
+                        $searchResults.Add($CombinedDevice)
+                        $AutopilotCount++
+                    }
+                }
+            }
         }
-        
+
         # Update UI status
         $Window.FindName('intune_status').Text = "Intune: $IntuneCount device found"
         $Window.FindName('intune_status').Foreground = if ($IntuneCount -gt 0) { '#4299E1' } else { '#FC8181' }
@@ -3784,13 +4207,19 @@ function Invoke-DeviceSearch {
         $Window.FindName('aad_status').Foreground = if ($AADCount -gt 0) { '#ED64A6' } else { '#FC8181' }
 
         if ($searchResults.Count -gt 0) {
+            $script:AllSearchResults = $searchResults
             $SearchResultsDataGrid.ItemsSource = $searchResults
+            $script:LastCheckedIndex = -1
+            # Show filter row when results are available
+            $FilterRow.Visibility = 'Visible'
         }
         else {
+            $script:AllSearchResults = $null
             $SearchResultsDataGrid.ItemsSource = $null
+            $FilterRow.Visibility = 'Collapsed'
             [System.Windows.MessageBox]::Show("No devices found matching the search criteria.")
         }
-        
+
         # Ensure Offboard button and Export Selected button are disabled until selection
         $OffboardButton.IsEnabled = $false
         $ExportSelectedButton.IsEnabled = $false
@@ -3813,24 +4242,102 @@ $Disconnect = $Window.FindName('disconnect_button')
 $logs_button = $Window.FindName('logs_button')
 $PrerequisitesButton = $Window.FindName('PrerequisitesButton')
 $FeedbackLink = $Window.FindName('FeedbackLink')
+$FilterRow = $Window.FindName('FilterRow')
+$FilterDeviceName = $Window.FindName('FilterDeviceName')
+$FilterSerialNumber = $Window.FindName('FilterSerialNumber')
+$FilterOS = $Window.FindName('FilterOS')
+$FilterPrimaryUser = $Window.FindName('FilterPrimaryUser')
+$FilterCompliance = $Window.FindName('FilterCompliance')
+$SearchResultsDataGrid = $Window.FindName('SearchResultsDataGrid')
+
+# Grid filter function
+function Update-DeviceFilter {
+    if (-not $script:AllSearchResults) { return }
+    $filtered = $script:AllSearchResults
+    $nameFilter = $FilterDeviceName.Text
+    $serialFilter = $FilterSerialNumber.Text
+    $osFilter = $FilterOS.Text
+    $userFilter = $FilterPrimaryUser.Text
+    $compFilter = $FilterCompliance.Text
+    if ($nameFilter) { $filtered = $filtered | Where-Object { $_.DeviceName -like "*$nameFilter*" } }
+    if ($serialFilter) { $filtered = $filtered | Where-Object { $_.SerialNumber -like "*$serialFilter*" } }
+    if ($osFilter) { $filtered = $filtered | Where-Object { $_.OperatingSystem -like "*$osFilter*" } }
+    if ($userFilter) { $filtered = $filtered | Where-Object { $_.PrimaryUser -like "*$userFilter*" } }
+    if ($compFilter) { $filtered = $filtered | Where-Object { $_.ComplianceState -like "*$compFilter*" } }
+    $SearchResultsDataGrid.ItemsSource = @($filtered)
+    $script:LastCheckedIndex = -1
+}
+
+# Wire filter TextChanged events
+$FilterDeviceName.Add_TextChanged({ Update-DeviceFilter })
+$FilterSerialNumber.Add_TextChanged({ Update-DeviceFilter })
+$FilterOS.Add_TextChanged({ Update-DeviceFilter })
+$FilterPrimaryUser.Add_TextChanged({ Update-DeviceFilter })
+$FilterCompliance.Add_TextChanged({ Update-DeviceFilter })
+
+# Shift-click range selection
+$script:LastCheckedIndex = -1
+$SearchResultsDataGrid.Add_PreviewMouseLeftButtonDown({
+        param($sender, $e)
+        $source = $e.OriginalSource
+        # Walk up to find CheckBox
+        $element = $source
+        $isCheckBox = $false
+        while ($element -ne $null) {
+            if ($element -is [System.Windows.Controls.CheckBox]) {
+                $isCheckBox = $true
+                break
+            }
+            if ($element -is [System.Windows.Controls.DataGridRow]) { break }
+            $element = [System.Windows.Media.VisualTreeHelper]::GetParent($element)
+        }
+        if (-not $isCheckBox) { return }
+
+        # Find the DataGridRow
+        $row = $source
+        while ($row -ne $null -and $row -isnot [System.Windows.Controls.DataGridRow]) {
+            $row = [System.Windows.Media.VisualTreeHelper]::GetParent($row)
+        }
+        if (-not $row) { return }
+        $currentIndex = $SearchResultsDataGrid.ItemContainerGenerator.IndexFromContainer($row)
+        if ($currentIndex -lt 0) { return }
+
+        if ([System.Windows.Input.Keyboard]::IsKeyDown([System.Windows.Input.Key]::LeftShift) -or
+            [System.Windows.Input.Keyboard]::IsKeyDown([System.Windows.Input.Key]::RightShift)) {
+            if ($script:LastCheckedIndex -ge 0) {
+                $start = [Math]::Min($script:LastCheckedIndex, $currentIndex)
+                $end = [Math]::Max($script:LastCheckedIndex, $currentIndex)
+                $items = $SearchResultsDataGrid.ItemsSource
+                $targetState = -not $items[$currentIndex].IsSelected
+                for ($i = $start; $i -le $end; $i++) {
+                    $items[$i].IsSelected = $targetState
+                }
+                $e.Handled = $true
+            }
+        }
+        $script:LastCheckedIndex = $currentIndex
+    })
 
 # Add feedback link handler
 $FeedbackLink.Add_Click({
         Start-Process "https://github.com/ugurkocde/DeviceOffboardingManager/issues"
     })
 
-$SearchInputText.Add_GotFocus({
-        # Empty - no resizing needed
-    })
-
-$SearchInputText.Add_LostFocus({
-        # Empty - no resizing needed
+$SearchInputText.Add_KeyDown({
+        param($sender, $e)
+        if ($e.Key -eq [System.Windows.Input.Key]::Return) {
+            $e.Handled = $true
+            $SearchButton.RaiseEvent(
+                (New-Object System.Windows.RoutedEventArgs(
+                    [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
+        }
     })
     
 $Window.Add_Loaded({
         $Dropdown.Items.Add("Devicename")
         $Dropdown.Items.Add("Serialnumber")
         $Dropdown.Items.Add("Device ID")
+        $Dropdown.Items.Add("Contains (partial match)")
         $Dropdown.SelectedIndex = 0
     })
 
@@ -4227,6 +4734,22 @@ $OffboardButton.Add_Click({
 
             <!-- Main Content -->
             <StackPanel>
+                <!-- Co-Management Warning Banner -->
+                <Border x:Name="CoMgmtBanner" Background="#FFFBEB" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="6" Padding="16" Margin="0,0,0,16" Visibility="Collapsed">
+                    <TextBlock Text="One or more devices are co-managed with Configuration Manager. Removing from Intune may disrupt SCCM management." Foreground="#92400E" TextWrapping="Wrap" FontSize="13"/>
+                </Border>
+
+                <!-- Pre-Offboarding Action -->
+                <StackPanel Margin="0,0,0,16">
+                    <TextBlock Text="Pre-Offboarding Action" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                    <TextBlock Text="Optionally retire or wipe devices before deletion." Foreground="#718096" FontSize="12" Margin="0,0,0,8"/>
+                    <ComboBox x:Name="PreActionComboBox" Width="250" HorizontalAlignment="Left" SelectedIndex="0">
+                        <ComboBoxItem Content="Delete only (no pre-action)"/>
+                        <ComboBoxItem Content="Retire then Delete"/>
+                        <ComboBoxItem Content="Wipe then Delete"/>
+                    </ComboBox>
+                </StackPanel>
+
                 <!-- Services List -->
                 <WrapPanel x:Name="ServicesList" Margin="0,0,0,24" Orientation="Horizontal"/>
 
@@ -4280,7 +4803,7 @@ $OffboardButton.Add_Click({
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
                         
-                        <TextBlock Grid.Row="0" Text="Device Encryption Keys" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="0" Text="Device Credentials &amp; Keys" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" VerticalAlignment="Stretch">
                             <ItemsControl x:Name="EncryptionKeysList">
                                 <ItemsControl.ItemTemplate>
@@ -4335,6 +4858,14 @@ $OffboardButton.Add_Click({
         $confirmButton = $confirmationWindow.FindName('ConfirmButton')
         $encryptionKeysList = $confirmationWindow.FindName('EncryptionKeysList')
         $devicePreviewList = $confirmationWindow.FindName('DevicePreviewList')
+        $preActionCombo = $confirmationWindow.FindName('PreActionComboBox')
+        $coMgmtBanner = $confirmationWindow.FindName('CoMgmtBanner')
+
+        # Check for co-managed devices and show warning banner
+        $hasCoManaged = $selectedDevices | Where-Object { $_.ManagementAgent -and $_.ManagementAgent -like '*configurationManager*' }
+        if ($hasCoManaged) {
+            $coMgmtBanner.Visibility = 'Visible'
+        }
 
         # Populate Device Identity Preview
         $previewItems = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
@@ -4436,6 +4967,41 @@ $OffboardButton.Add_Click({
                 else {
                     $keyInfo.KeyText = "Device not found in Intune."
                 }
+
+                # LAPS password retrieval (works for any OS, uses Entra device ID)
+                $lapsKeyInfo = @{
+                    DeviceName = "$($selectedDevice.DeviceName) - LAPS"
+                    KeyText    = "Loading LAPS password..."
+                    Key        = $null
+                }
+                $lapsDeviceId = $selectedDevice.EntraDeviceObjectId
+                if ($lapsDeviceId) {
+                    try {
+                        $uri = "https://graph.microsoft.com/beta/directory/deviceLocalCredentials/$lapsDeviceId?`$select=credentials"
+                        $lapsResponse = Invoke-MgGraphRequest -Uri $uri -Method GET
+                        if ($lapsResponse.credentials -and $lapsResponse.credentials.Count -gt 0) {
+                            $latestCred = $lapsResponse.credentials | Sort-Object -Property backupDateTime -Descending | Select-Object -First 1
+                            $lapsPassword = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($latestCred.passwordBase64))
+                            $lapsAccount = $latestCred.accountName
+                            $lapsKeyInfo.KeyText = "LAPS Password: $lapsPassword (Account: $lapsAccount)"
+                            $lapsKeyInfo.Key = $lapsPassword
+                            Write-Log "SENSITIVE: LAPS password retrieved for device $($selectedDevice.DeviceName)" -Severity "AUDIT"
+                        } else {
+                            $lapsKeyInfo.KeyText = "No LAPS password found for this device."
+                        }
+                    }
+                    catch {
+                        if ($_.Exception.Response.StatusCode -eq 'NotFound' -or $_ -match '404') {
+                            $lapsKeyInfo.KeyText = "No LAPS password found for this device."
+                        } else {
+                            Write-Log "Error retrieving LAPS password: $_" -Severity "ERROR"
+                            $lapsKeyInfo.KeyText = "Error retrieving LAPS password. Check logs for details."
+                        }
+                    }
+                } else {
+                    $lapsKeyInfo.KeyText = "No Entra device ID available for LAPS lookup."
+                }
+                $encryptionKeys.Add([PSCustomObject]$lapsKeyInfo)
             }
             catch {
                 Write-Log "Error retrieving encryption key for $($selectedDevice.DeviceName): $_" -Severity "ERROR"
@@ -4478,7 +5044,8 @@ $OffboardButton.Add_Click({
             @{ Name = "Entra ID"; Icon = "M12,5.5A3.5,3.5 0 0,1 15.5,9A3.5,3.5 0 0,1 12,12.5A3.5,3.5 0 0,1 8.5,9A3.5,3.5 0 0,1 12,5.5M5,8C5.56,8 6.08,8.15 6.53,8.42C6.38,9.85 6.8,11.27 7.66,12.38C7.16,13.34 6.16,14 5,14A3,3 0 0,1 2,11A3,3 0 0,1 5,8M19,8A3,3 0 0,1 22,11A3,3 0 0,1 19,14C17.84,14 16.84,13.34 16.34,12.38C17.2,11.27 17.62,9.85 17.47,8.42C17.92,8.15 18.44,8 19,8M5.5,18.25C5.5,16.18 8.41,14.5 12,14.5C15.59,14.5 18.5,16.18 18.5,18.25V20H5.5V18.25M0,20V18.5C0,17.11 1.89,15.94 4.45,15.6C3.86,16.28 3.5,17.22 3.5,18.25V20H0M24,20H20.5V18.25C20.5,17.22 20.14,16.28 19.55,15.6C22.11,15.94 24,17.11 24,18.5V20Z"; DefaultChecked = $true },
             @{ Name = "Disable in Entra ID"; Icon = "M12,5.5A3.5,3.5 0 0,1 15.5,9A3.5,3.5 0 0,1 12,12.5A3.5,3.5 0 0,1 8.5,9A3.5,3.5 0 0,1 12,5.5M5,8C5.56,8 6.08,8.15 6.53,8.42C6.38,9.85 6.8,11.27 7.66,12.38C7.16,13.34 6.16,14 5,14A3,3 0 0,1 2,11A3,3 0 0,1 5,8M19,8A3,3 0 0,1 22,11A3,3 0 0,1 19,14C17.84,14 16.84,13.34 16.34,12.38C17.2,11.27 17.62,9.85 17.47,8.42C17.92,8.15 18.44,8 19,8M5.5,18.25C5.5,16.18 8.41,14.5 12,14.5C15.59,14.5 18.5,16.18 18.5,18.25V20H5.5V18.25M0,20V18.5C0,17.11 1.89,15.94 4.45,15.6C3.86,16.28 3.5,17.22 3.5,18.25V20H0M24,20H20.5V18.25C20.5,17.22 20.14,16.28 19.55,15.6C22.11,15.94 24,17.11 24,18.5V20Z"; DefaultChecked = $false },
             @{ Name = "Intune"; Icon = "M21,14V4H3V14H21M21,2A2,2 0 0,1 23,4V16A2,2 0 0,1 21,18H14L16,21V22H8V21L10,18H3C1.89,18 1,17.1 1,16V4C1,2.89 1.89,2 3,2H21M4,5H20V13H4V5Z"; DefaultChecked = $true },
-            @{ Name = "Autopilot"; Icon = "M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"; DefaultChecked = $true }
+            @{ Name = "Autopilot"; Icon = "M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"; DefaultChecked = $true },
+            @{ Name = "Defender for Endpoint"; Icon = "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,3.18L19,6.3V11.22C19,15.54 16.18,19.5 12,20.93C7.82,19.5 5,15.54 5,11.22V6.3L12,3.18Z"; DefaultChecked = $false }
         )
         
         # Create hashtable to store checkbox references
@@ -4588,6 +5155,13 @@ $OffboardButton.Add_Click({
             return
         }
 
+        # Capture pre-action selection (0=none, 1=retire, 2=wipe)
+        $script:preAction = $preActionCombo.SelectedIndex
+        if ($script:preAction -gt 0) {
+            $preActionName = if ($script:preAction -eq 1) { "Retire" } else { "Wipe" }
+            Write-Log "Pre-offboarding action selected: $preActionName" -Severity "AUDIT"
+        }
+
         # Create results collection to track all operations
         $offboardingResults = @()
         $bulkAutopilotIds = @()
@@ -4598,6 +5172,36 @@ $OffboardButton.Add_Click({
             $deleteEntra = (-not $disableEntra) -and $script:serviceCheckboxes["Entra ID"].IsChecked
             $deleteIntune = $script:serviceCheckboxes["Intune"].IsChecked
             $deleteAutopilot = $script:serviceCheckboxes["Autopilot"].IsChecked
+            $offboardMde = $script:serviceCheckboxes.ContainsKey("Defender for Endpoint") -and $script:serviceCheckboxes["Defender for Endpoint"].IsChecked
+
+            # Resolve MDE device IDs if MDE offboarding is selected
+            if ($offboardMde) {
+                try {
+                    $mdeToken = Get-MdeAccessToken
+                    if ($mdeToken) {
+                        foreach ($device in $selectedDevices) {
+                            if ($device.EntraDeviceObjectId -and -not $device.MdeDeviceId) {
+                                try {
+                                    $mdeHeaders = @{ Authorization = "Bearer $mdeToken" }
+                                    $mdeResponse = Invoke-RestMethod -Uri "https://api.security.microsoft.com/api/machines?`$filter=aadDeviceId eq '$($device.EntraDeviceObjectId)'" -Headers $mdeHeaders -Method GET
+                                    if ($mdeResponse.value -and $mdeResponse.value.Count -gt 0) {
+                                        $device.MdeDeviceId = $mdeResponse.value[0].id
+                                        Write-Log "Resolved MDE device ID for $($device.DeviceName): $($device.MdeDeviceId)"
+                                    }
+                                } catch {
+                                    Write-Log "Could not resolve MDE device ID for $($device.DeviceName): $_" -Severity "WARN"
+                                }
+                            }
+                        }
+                    } else {
+                        Write-Log "Could not acquire MDE access token. MDE offboarding will be skipped." -Severity "WARN"
+                        $offboardMde = $false
+                    }
+                } catch {
+                    Write-Log "Error during MDE token acquisition: $_" -Severity "ERROR"
+                    $offboardMde = $false
+                }
+            }
 
             # Collect serial numbers and Autopilot IDs for potential bulk deletion (2+ devices)
             $bulkAutopilotSerials = @()
@@ -4616,9 +5220,59 @@ $OffboardButton.Add_Click({
                     EntraID      = @{ Found = $false; Success = $false; Error = $null; Action = $null }
                     Intune       = @{ Found = $false; Success = $false; Error = $null }
                     Autopilot    = @{ Found = $false; Success = $false; Error = $null }
+                    MDE          = @{ Found = $false; Success = $false; Error = $null }
+                    PreAction    = @{ Action = $null; Success = $false; Error = $null }
                 }
 
                 Write-Log "Starting offboarding for device: $deviceName (Serial: $serialNumber, EntraId: $($device.EntraDeviceId), IntuneId: $($device.IntuneDeviceId), AutopilotId: $($device.AutopilotIdentityId))" -Severity "AUDIT"
+
+                # Execute pre-offboarding action (retire/wipe) if selected
+                if ($script:preAction -gt 0 -and $device.IntuneDeviceId) {
+                    $preActionName = if ($script:preAction -eq 1) { "retire" } else { "wipe" }
+                    $deviceResult.PreAction.Action = $preActionName
+                    try {
+                        $preActionUri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices/$($device.IntuneDeviceId)/$preActionName"
+                        $preActionBody = if ($script:preAction -eq 2) { '{}' } else { $null }
+                        if ($preActionBody) {
+                            Invoke-MgGraphRequest -Uri $preActionUri -Method POST -Body $preActionBody -ContentType "application/json"
+                        } else {
+                            Invoke-MgGraphRequest -Uri $preActionUri -Method POST
+                        }
+                        $deviceResult.PreAction.Success = $true
+                        Write-Log "Successfully executed $preActionName on device $deviceName (IntuneId: $($device.IntuneDeviceId))" -Severity "AUDIT"
+                        Start-Sleep -Seconds 2
+                    } catch {
+                        $deviceResult.PreAction.Error = $_.Exception.Message
+                        Write-Log "Error executing $preActionName on device $deviceName`: $_" -Severity "ERROR"
+                        $continueChoice = [System.Windows.MessageBox]::Show(
+                            "Failed to $preActionName device '$deviceName'. Continue with deletion?`n`nError: $($_.Exception.Message)",
+                            "Pre-Action Failed",
+                            [System.Windows.MessageBoxButton]::YesNo,
+                            [System.Windows.MessageBoxImage]::Warning
+                        )
+                        if ($continueChoice -eq [System.Windows.MessageBoxResult]::No) {
+                            $offboardingResults += $deviceResult
+                            continue
+                        }
+                    }
+                }
+
+                # Execute MDE offboarding if selected
+                if ($offboardMde -and $device.MdeDeviceId) {
+                    $deviceResult.MDE.Found = $true
+                    try {
+                        $mdeHeaders = @{ Authorization = "Bearer $mdeToken"; "Content-Type" = "application/json" }
+                        $mdeBody = @{ Comment = "Offboarded via DeviceOffboardingManager" } | ConvertTo-Json
+                        Invoke-RestMethod -Uri "https://api.security.microsoft.com/api/machines/$($device.MdeDeviceId)/offboard" -Headers $mdeHeaders -Method POST -Body $mdeBody -ContentType "application/json"
+                        $deviceResult.MDE.Success = $true
+                        Write-Log "Successfully offboarded device $deviceName from MDE (MdeId: $($device.MdeDeviceId))" -Severity "AUDIT"
+                    } catch {
+                        $deviceResult.MDE.Error = $_.Exception.Message
+                        Write-Log "Error offboarding device $deviceName from MDE: $_" -Severity "ERROR"
+                    }
+                } elseif ($offboardMde -and -not $device.MdeDeviceId) {
+                    Write-Log "Skipping MDE offboarding for $deviceName - no MDE device ID resolved" -Severity "WARN"
+                }
 
                 # Build batch requests for this device
                 $batchRequests = @()
@@ -4684,6 +5338,9 @@ $OffboardButton.Add_Click({
                             if ($entraResp.status -in @(200, 204)) {
                                 $deviceResult.EntraID.Success = $true
                                 Write-Log "Successfully $($deviceResult.EntraID.Action.ToLower()) device $deviceName in Entra ID (ID: $($device.EntraDeviceId))" -Severity "AUDIT"
+                            } elseif ($entraResp.status -eq 403 -and $entraResp.body.error.code -match 'multipleAdminApproval|protectedOperation') {
+                                $deviceResult.EntraID.Error = "Requires Multi-Admin Approval"
+                                Write-Log "Entra ID operation for $deviceName requires Multi-Admin Approval" -Severity "WARN"
                             } else {
                                 $deviceResult.EntraID.Error = "HTTP $($entraResp.status)"
                                 Write-Log "Error with Entra ID operation for $deviceName`: HTTP $($entraResp.status)" -Severity "ERROR"
@@ -4696,6 +5353,9 @@ $OffboardButton.Add_Click({
                             if ($intuneResp.status -in @(200, 204)) {
                                 $deviceResult.Intune.Success = $true
                                 Write-Log "Successfully removed device $deviceName from Intune (ID: $($device.IntuneDeviceId))" -Severity "AUDIT"
+                            } elseif ($intuneResp.status -eq 403 -and $intuneResp.body.error.code -match 'multipleAdminApproval|protectedOperation') {
+                                $deviceResult.Intune.Error = "Requires Multi-Admin Approval"
+                                Write-Log "Intune operation for $deviceName requires Multi-Admin Approval" -Severity "WARN"
                             } else {
                                 $deviceResult.Intune.Error = "HTTP $($intuneResp.status)"
                                 Write-Log "Error removing device $deviceName from Intune: HTTP $($intuneResp.status)" -Severity "ERROR"
@@ -4708,6 +5368,9 @@ $OffboardButton.Add_Click({
                             if ($autopilotResp.status -in @(200, 204)) {
                                 $deviceResult.Autopilot.Success = $true
                                 Write-Log "Successfully removed device $deviceName from Autopilot (ID: $($device.AutopilotIdentityId))" -Severity "AUDIT"
+                            } elseif ($autopilotResp.status -eq 403 -and $autopilotResp.body.error.code -match 'multipleAdminApproval|protectedOperation') {
+                                $deviceResult.Autopilot.Error = "Requires Multi-Admin Approval"
+                                Write-Log "Autopilot operation for $deviceName requires Multi-Admin Approval" -Severity "WARN"
                             } else {
                                 $deviceResult.Autopilot.Error = "HTTP $($autopilotResp.status)"
                                 Write-Log "Error removing device $deviceName from Autopilot: HTTP $($autopilotResp.status)" -Severity "ERROR"
@@ -4827,6 +5490,7 @@ $ExportSearchResultsButton.Add_Click({
                     SerialNumber         = $device.SerialNumber
                     OperatingSystem      = $device.OperatingSystem
                     PrimaryUser          = $device.PrimaryUser
+                    ComplianceState      = $device.ComplianceState
                     AzureADLastContact   = $device.AzureADLastContact
                     IntuneLastContact    = $device.IntuneLastContact
                     AutopilotLastContact = $device.AutopilotLastContact
@@ -4861,6 +5525,7 @@ $ExportSelectedButton.Add_Click({
                     SerialNumber         = $device.SerialNumber
                     OperatingSystem      = $device.OperatingSystem
                     PrimaryUser          = $device.PrimaryUser
+                    ComplianceState      = $device.ComplianceState
                     AzureADLastContact   = $device.AzureADLastContact
                     IntuneLastContact    = $device.IntuneLastContact
                     AutopilotLastContact = $device.AutopilotLastContact
@@ -4878,16 +5543,172 @@ $ExportSelectedButton.Add_Click({
             )
         }
     })
-    
+
+function Get-MdeAccessToken {
+    try {
+        # Use the existing Graph connection context to get a token for the MDE resource
+        $context = Get-MgContext
+        if (-not $context) {
+            Write-Log "No Graph context available for MDE token acquisition" -Severity "WARN"
+            return $null
+        }
+
+        # Check if MSAL.PS module is available
+        if (-not (Get-Module -ListAvailable -Name "MSAL.PS")) {
+            Write-Log "MSAL.PS module not installed. MDE offboarding requires the MSAL.PS module. Install with: Install-Module MSAL.PS" -Severity "WARN"
+            return $null
+        }
+
+        Import-Module MSAL.PS -ErrorAction Stop
+        $scopes = @("https://api.security.microsoft.com/.default")
+
+        # Try silent token acquisition first
+        try {
+            $mdeToken = (Get-MsalToken -ClientId $context.ClientId -TenantId $context.TenantId -Scopes $scopes -Silent -ErrorAction Stop).AccessToken
+            return $mdeToken
+        } catch {
+            Write-Log "Silent MDE token acquisition failed, trying interactive: $_" -Severity "WARN"
+        }
+        # Fallback: try interactive token acquisition
+        try {
+            $mdeToken = (Get-MsalToken -ClientId $context.ClientId -TenantId $context.TenantId -Scopes $scopes -Interactive -ErrorAction Stop).AccessToken
+            return $mdeToken
+        } catch {
+            Write-Log "Interactive MDE token acquisition failed: $_" -Severity "ERROR"
+            return $null
+        }
+    } catch {
+        Write-Log "Error acquiring MDE access token: $_" -Severity "ERROR"
+        return $null
+    }
+}
+
+function Show-DeviceGroupMembership {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$EntraDeviceId,
+        [string]$DeviceName = "Device"
+    )
+
+    try {
+        $uri = "https://graph.microsoft.com/beta/devices/$EntraDeviceId/memberOf?`$select=displayName,groupTypes,mailEnabled,securityEnabled"
+        $groups = Get-GraphPagedResults -Uri $uri
+
+        [xml]$groupModalXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Group Memberships - $([System.Security.SecurityElement]::Escape($DeviceName) -replace '&quot;', '')" Height="400" Width="500" WindowStartupLocation="CenterScreen" Background="#F8F9FA">
+    <Border Background="White" CornerRadius="8" Margin="16">
+        <DockPanel Margin="24">
+            <TextBlock DockPanel.Dock="Top" Text="Group Memberships" FontSize="18" FontWeight="SemiBold" Foreground="#1A202C" Margin="0,0,0,16"/>
+            <Button x:Name="GroupCloseButton" DockPanel.Dock="Bottom" Content="Close" Width="100" Height="36"
+                    Background="#0078D4" Foreground="White" BorderThickness="0" HorizontalAlignment="Right" Margin="0,16,0,0"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="GroupList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="#F7FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Name}" FontWeight="Medium" FontSize="13"/>
+                                    <TextBlock Text="{Binding Type}" FontSize="11" Foreground="#718096"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</Window>
+"@
+
+        $reader = (New-Object System.Xml.XmlNodeReader $groupModalXaml)
+        $groupWindow = [Windows.Markup.XamlReader]::Load($reader)
+        $groupList = $groupWindow.FindName('GroupList')
+        $groupCloseBtn = $groupWindow.FindName('GroupCloseButton')
+
+        $groupItems = @()
+        if ($groups -and $groups.Count -gt 0) {
+            foreach ($group in $groups) {
+                $groupType = if ($group.groupTypes -contains "Unified") { "Microsoft 365 Group" }
+                             elseif ($group.groupTypes -contains "DynamicMembership") { "Dynamic Security Group" }
+                             elseif ($group.securityEnabled) { "Security Group" }
+                             else { "Distribution Group" }
+                $groupItems += [PSCustomObject]@{
+                    Name = $group.displayName
+                    Type = $groupType
+                }
+            }
+        } else {
+            $groupItems += [PSCustomObject]@{
+                Name = "No group memberships found"
+                Type = ""
+            }
+        }
+
+        $groupList.ItemsSource = $groupItems
+        $groupCloseBtn.Add_Click({ $groupWindow.Close() })
+        $groupWindow.ShowDialog() | Out-Null
+    } catch {
+        Write-Log "Error retrieving group memberships: $_" -Severity "ERROR"
+        [System.Windows.MessageBox]::Show("Error retrieving group memberships: $($_.Exception.Message)", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+    }
+}
+
+function Show-OSPickerDialog {
+    [xml]$osPickerXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Select Operating System" Height="250" Width="350" WindowStartupLocation="CenterScreen" Background="#F8F9FA" ResizeMode="NoResize">
+    <Border Background="White" CornerRadius="8" Margin="16">
+        <StackPanel Margin="24">
+            <TextBlock Text="Select Operating System" FontSize="18" FontWeight="SemiBold" Foreground="#1A202C" Margin="0,0,0,16"/>
+            <TextBlock Text="Choose the OS to filter devices by:" Foreground="#718096" FontSize="12" Margin="0,0,0,12"/>
+            <ComboBox x:Name="OSComboBox" Width="250" HorizontalAlignment="Left" SelectedIndex="0">
+                <ComboBoxItem Content="Windows"/>
+                <ComboBoxItem Content="macOS"/>
+                <ComboBoxItem Content="iOS"/>
+                <ComboBoxItem Content="iPadOS"/>
+                <ComboBoxItem Content="Android"/>
+                <ComboBoxItem Content="Linux"/>
+            </ComboBox>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
+                <Button x:Name="OSCancelButton" Content="Cancel" Width="80" Height="32" Background="#F0F0F0" Foreground="#2D3748" BorderThickness="0" Margin="0,0,8,0"/>
+                <Button x:Name="OSOkButton" Content="OK" Width="80" Height="32" Background="#0078D4" Foreground="White" BorderThickness="0"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>
+'@
+
+    $reader = (New-Object System.Xml.XmlNodeReader $osPickerXaml)
+    $osWindow = [Windows.Markup.XamlReader]::Load($reader)
+    $osCombo = $osWindow.FindName('OSComboBox')
+    $osCancelBtn = $osWindow.FindName('OSCancelButton')
+    $osOkBtn = $osWindow.FindName('OSOkButton')
+
+    $script:selectedOS = $null
+    $osCancelBtn.Add_Click({ $osWindow.DialogResult = $false; $osWindow.Close() })
+    $osOkBtn.Add_Click({
+        $script:selectedOS = ($osCombo.SelectedItem).Content.ToString()
+        $osWindow.DialogResult = $true
+        $osWindow.Close()
+    })
+
+    $dialogResult = $osWindow.ShowDialog()
+    if ($dialogResult) {
+        return $script:selectedOS
+    }
+    return $null
+}
+
 function Show-OffboardingSummary {
     param(
         [Parameter(Mandatory = $true)]
         [array]$Results
     )
-    
+
     [xml]$summaryModalXaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" 
-        Title="Offboarding Summary" Height="600" Width="800" WindowStartupLocation="CenterScreen" Background="#F8F9FA">
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Offboarding Summary" Height="650" Width="900" WindowStartupLocation="CenterScreen" Background="#F8F9FA">
     <Border Background="White" CornerRadius="8" Margin="16">
         <DockPanel Margin="24">
             <!-- Header -->
@@ -4896,13 +5717,24 @@ function Show-OffboardingSummary {
                 <TextBlock Text="Review the results of the offboarding operation below" Foreground="#4A5568" FontSize="14" Margin="0,8,0,0"/>
             </StackPanel>
 
-            <!-- Close Button -->
-            <Button x:Name="CloseButton" DockPanel.Dock="Bottom" Content="Close" Width="120" Height="40" 
-                    Background="#0078D4" Foreground="White" BorderThickness="0" HorizontalAlignment="Right" Margin="0,24,0,0"/>
+            <!-- Close and Export Buttons -->
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
+                <Button x:Name="ExportReportButton" Content="Export Report" Width="130" Height="40"
+                        Background="#1B2A47" Foreground="White" BorderThickness="0" Margin="0,0,12,0">
+                    <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="4"/></Style></Button.Resources>
+                </Button>
+                <Button x:Name="CloseButton" Content="Close" Width="120" Height="40"
+                        Background="#0078D4" Foreground="White" BorderThickness="0"/>
+            </StackPanel>
 
             <!-- Main Content ScrollViewer -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
                 <StackPanel>
+                    <!-- MAA Info Banner -->
+                    <Border x:Name="MAABanner" Background="#FFFBEB" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="6" Padding="16" Margin="0,0,0,16" Visibility="Collapsed">
+                        <TextBlock Text="One or more actions require Multi-Admin Approval. A second administrator must approve in the Entra admin center." Foreground="#92400E" TextWrapping="Wrap" FontSize="13"/>
+                    </Border>
+
                     <!-- Summary Statistics -->
                     <Border Background="#EDF2F7" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="16" Margin="0,0,0,16">
                         <StackPanel>
@@ -4914,22 +5746,22 @@ function Show-OffboardingSummary {
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                
+
                                 <StackPanel Grid.Column="0" Margin="0,0,16,0">
                                     <TextBlock x:Name="TotalDevicesText" FontSize="24" FontWeight="Bold" Foreground="#2D3748"/>
                                     <TextBlock Text="Total Devices" FontSize="12" Foreground="#718096"/>
                                 </StackPanel>
-                                
+
                                 <StackPanel Grid.Column="1" Margin="0,0,16,0">
                                     <TextBlock x:Name="SuccessfulText" FontSize="24" FontWeight="Bold" Foreground="#48BB78"/>
                                     <TextBlock Text="Successful" FontSize="12" Foreground="#718096"/>
                                 </StackPanel>
-                                
+
                                 <StackPanel Grid.Column="2" Margin="0,0,16,0">
                                     <TextBlock x:Name="PartialText" FontSize="24" FontWeight="Bold" Foreground="#ECC94B"/>
                                     <TextBlock Text="Partial Success" FontSize="12" Foreground="#718096"/>
                                 </StackPanel>
-                                
+
                                 <StackPanel Grid.Column="3">
                                     <TextBlock x:Name="FailedText" FontSize="24" FontWeight="Bold" Foreground="#F56565"/>
                                     <TextBlock Text="Failed" FontSize="12" Foreground="#718096"/>
@@ -4948,41 +5780,56 @@ function Show-OffboardingSummary {
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/>
                                             <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
-                                        
+
                                         <!-- Device Header -->
                                         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
                                             <TextBlock Text="{Binding DeviceName}" FontWeight="SemiBold" FontSize="14" Margin="0,0,12,0"/>
                                             <TextBlock Text="{Binding SerialNumber, StringFormat='Serial: {0}'}" FontSize="12" Foreground="#718096" VerticalAlignment="Center"/>
                                         </StackPanel>
-                                        
+
+                                        <!-- Pre-Action Result -->
+                                        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8" Visibility="{Binding PreActionVisibility}">
+                                            <TextBlock Text="Pre-Action: " FontWeight="Medium" FontSize="11"/>
+                                            <TextBlock Text="{Binding PreActionStatus}" FontSize="11" Foreground="{Binding PreActionColor}"/>
+                                        </StackPanel>
+
                                         <!-- Service Results -->
-                                        <Grid Grid.Row="1">
+                                        <Grid Grid.Row="2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
-                                            
+
                                             <!-- Entra ID Result -->
                                             <StackPanel Grid.Column="0" Margin="0,0,16,0">
                                                 <TextBlock Text="Entra ID" FontWeight="Medium" FontSize="12" Margin="0,0,0,4"/>
                                                 <TextBlock x:Name="EntraStatus" Text="{Binding EntraIDStatus}" FontSize="11" Foreground="{Binding EntraIDColor}"/>
                                                 <TextBlock Text="{Binding EntraIDError}" FontSize="10" Foreground="#F56565" TextWrapping="Wrap" Visibility="{Binding EntraIDErrorVisibility}"/>
                                             </StackPanel>
-                                            
+
                                             <!-- Intune Result -->
                                             <StackPanel Grid.Column="1" Margin="0,0,16,0">
                                                 <TextBlock Text="Intune" FontWeight="Medium" FontSize="12" Margin="0,0,0,4"/>
                                                 <TextBlock x:Name="IntuneStatus" Text="{Binding IntuneStatus}" FontSize="11" Foreground="{Binding IntuneColor}"/>
                                                 <TextBlock Text="{Binding IntuneError}" FontSize="10" Foreground="#F56565" TextWrapping="Wrap" Visibility="{Binding IntuneErrorVisibility}"/>
                                             </StackPanel>
-                                            
+
                                             <!-- Autopilot Result -->
-                                            <StackPanel Grid.Column="2">
+                                            <StackPanel Grid.Column="2" Margin="0,0,16,0">
                                                 <TextBlock Text="Autopilot" FontWeight="Medium" FontSize="12" Margin="0,0,0,4"/>
                                                 <TextBlock x:Name="AutopilotStatus" Text="{Binding AutopilotStatus}" FontSize="11" Foreground="{Binding AutopilotColor}"/>
                                                 <TextBlock Text="{Binding AutopilotError}" FontSize="10" Foreground="#F56565" TextWrapping="Wrap" Visibility="{Binding AutopilotErrorVisibility}"/>
+                                            </StackPanel>
+
+                                            <!-- MDE Result -->
+                                            <StackPanel Grid.Column="3" Visibility="{Binding MDEVisibility}">
+                                                <TextBlock Text="MDE" FontWeight="Medium" FontSize="12" Margin="0,0,0,4"/>
+                                                <TextBlock Text="{Binding MDEStatus}" FontSize="11" Foreground="{Binding MDEColor}"/>
+                                                <TextBlock Text="{Binding MDEError}" FontSize="10" Foreground="#F56565" TextWrapping="Wrap" Visibility="{Binding MDEErrorVisibility}"/>
                                             </StackPanel>
                                         </Grid>
                                     </Grid>
@@ -4996,11 +5843,11 @@ function Show-OffboardingSummary {
     </Border>
 </Window>
 '@
-    
+
     try {
         $reader = (New-Object System.Xml.XmlNodeReader $summaryModalXaml)
         $summaryWindow = [Windows.Markup.XamlReader]::Load($reader)
-        
+
         if ($null -eq $summaryWindow) {
             throw "Failed to create summary window. XamlReader returned null."
         }
@@ -5015,24 +5862,30 @@ function Show-OffboardingSummary {
         )
         return
     }
-    
+
     # Get controls
     $closeButton = $summaryWindow.FindName('CloseButton')
+    $exportReportButton = $summaryWindow.FindName('ExportReportButton')
     $totalDevicesText = $summaryWindow.FindName('TotalDevicesText')
     $successfulText = $summaryWindow.FindName('SuccessfulText')
     $partialText = $summaryWindow.FindName('PartialText')
     $failedText = $summaryWindow.FindName('FailedText')
     $resultsList = $summaryWindow.FindName('ResultsList')
-    
+    $maaBanner = $summaryWindow.FindName('MAABanner')
+
     # Calculate statistics
     $totalDevices = $Results.Count
     $successful = 0
     $partial = 0
     $failed = 0
-    
+    $hasMAA = $false
+
+    # Check if MDE was selected
+    $mdeSelected = $script:serviceCheckboxes -and $script:serviceCheckboxes.ContainsKey("Defender for Endpoint") -and $script:serviceCheckboxes["Defender for Endpoint"].IsChecked
+
     # Process results and create display objects
     $displayResults = @()
-    
+
     foreach ($result in $Results) {
         $deviceSuccess = 0
         $deviceTotal = 0
@@ -5045,21 +5898,48 @@ function Show-OffboardingSummary {
         if (-not $entraIDSkipped -and $result.EntraID.Found -and $result.EntraID.Success) { $deviceSuccess++ }
         if (-not $intuneSkipped -and $result.Intune.Found -and $result.Intune.Success) { $deviceSuccess++ }
         if (-not $autopilotSkipped -and $result.Autopilot.Found -and $result.Autopilot.Success) { $deviceSuccess++ }
+        if ($mdeSelected -and $result.MDE.Found -and $result.MDE.Success) { $deviceSuccess++ }
+
+        # Check for MAA errors
+        if ($result.EntraID.Error -eq "Requires Multi-Admin Approval" -or $result.Intune.Error -eq "Requires Multi-Admin Approval" -or $result.Autopilot.Error -eq "Requires Multi-Admin Approval") {
+            $hasMAA = $true
+        }
 
         # Determine Entra ID action label
         $entraActionLabel = if ($result.EntraID.Action -eq "Disabled") { "Disabled" } else { "Removed" }
+
+        # Pre-action display
+        $preActionVis = "Collapsed"
+        $preActionStatus = ""
+        $preActionColor = "#718096"
+        if ($result.PreAction -and $result.PreAction.Action) {
+            $preActionVis = "Visible"
+            $actionName = if ($result.PreAction.Action -eq "retire") { "Retire" } else { "Wipe" }
+            if ($result.PreAction.Success) {
+                $preActionStatus = "$actionName - Success"
+                $preActionColor = "#48BB78"
+            } else {
+                $preActionStatus = "$actionName - Failed"
+                $preActionColor = "#F56565"
+            }
+        }
 
         # Create display object for this device
         $displayResult = [PSCustomObject]@{
             DeviceName               = $result.DeviceName
             SerialNumber             = if ($result.SerialNumber) { $result.SerialNumber } else { "N/A" }
 
+            # Pre-Action
+            PreActionVisibility      = $preActionVis
+            PreActionStatus          = $preActionStatus
+            PreActionColor           = $preActionColor
+
             # Entra ID
             EntraIDStatus            = if ($entraIDSkipped) {
                 "Skipped"
             }
             elseif ($result.EntraID.Found) {
-                if ($result.EntraID.Success) { "✓ $entraActionLabel" } else { "✗ Failed" }
+                if ($result.EntraID.Success) { "-> $entraActionLabel" } else { "X Failed" }
             }
             else { "Not Found" }
             EntraIDColor             = if ($entraIDSkipped) {
@@ -5074,7 +5954,7 @@ function Show-OffboardingSummary {
                 "Skipped"
             }
             elseif ($result.Intune.Found) {
-                if ($result.Intune.Success) { "✓ Removed" } else { "✗ Failed" }
+                if ($result.Intune.Success) { "-> Removed" } else { "X Failed" }
             }
             else { "Not Found" }
             IntuneColor              = if ($intuneSkipped) {
@@ -5089,7 +5969,7 @@ function Show-OffboardingSummary {
                 "Skipped"
             }
             elseif ($result.Autopilot.Found) {
-                if ($result.Autopilot.Success) { "✓ Removed" } else { "✗ Failed" }
+                if ($result.Autopilot.Success) { "-> Removed" } else { "X Failed" }
             }
             else { "Not Found" }
             AutopilotColor           = if ($autopilotSkipped) {
@@ -5098,20 +5978,35 @@ function Show-OffboardingSummary {
             elseif (!$result.Autopilot.Found) { "#718096" } elseif ($result.Autopilot.Success) { "#48BB78" } else { "#F56565" }
             AutopilotError           = $result.Autopilot.Error
             AutopilotErrorVisibility = if ($result.Autopilot.Error) { "Visible" } else { "Collapsed" }
+
+            # MDE
+            MDEVisibility            = if ($mdeSelected) { "Visible" } else { "Collapsed" }
+            MDEStatus                = if (-not $mdeSelected) { "Skipped" }
+                                       elseif ($result.MDE.Found) {
+                                           if ($result.MDE.Success) { "-> Offboarded" } else { "X Failed" }
+                                       } else { "Not Found" }
+            MDEColor                 = if (-not $mdeSelected) { "#A0AEC0" }
+                                       elseif (!$result.MDE.Found) { "#718096" }
+                                       elseif ($result.MDE.Success) { "#48BB78" } else { "#F56565" }
+            MDEError                 = $result.MDE.Error
+            MDEErrorVisibility       = if ($result.MDE.Error) { "Visible" } else { "Collapsed" }
         }
-        
+
         # Count total services device was found in (only for selected services)
         $entraSelected = ($script:serviceCheckboxes -and $script:serviceCheckboxes["Entra ID"] -and $script:serviceCheckboxes["Entra ID"].IsChecked) -or ($script:serviceCheckboxes -and $script:serviceCheckboxes.ContainsKey("Disable in Entra ID") -and $script:serviceCheckboxes["Disable in Entra ID"].IsChecked)
         if ($entraSelected -and $result.EntraID.Found) {
             $deviceTotal++
         }
-        if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Intune"] -and $script:serviceCheckboxes["Intune"].IsChecked -and $result.Intune.Found) { 
-            $deviceTotal++ 
+        if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Intune"] -and $script:serviceCheckboxes["Intune"].IsChecked -and $result.Intune.Found) {
+            $deviceTotal++
         }
-        if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Autopilot"] -and $script:serviceCheckboxes["Autopilot"].IsChecked -and $result.Autopilot.Found) { 
-            $deviceTotal++ 
+        if ($script:serviceCheckboxes -and $script:serviceCheckboxes["Autopilot"] -and $script:serviceCheckboxes["Autopilot"].IsChecked -and $result.Autopilot.Found) {
+            $deviceTotal++
         }
-        
+        if ($mdeSelected -and $result.MDE.Found) {
+            $deviceTotal++
+        }
+
         # Categorize device result
         if ($deviceTotal -eq 0) {
             # Device not found in any selected service
@@ -5129,24 +6024,34 @@ function Show-OffboardingSummary {
             # Failed all operations
             $failed++
         }
-        
+
         $displayResults += $displayResult
     }
-    
+
     # Update statistics
     $totalDevicesText.Text = $totalDevices.ToString()
     $successfulText.Text = $successful.ToString()
     $partialText.Text = $partial.ToString()
     $failedText.Text = $failed.ToString()
-    
+
+    # Show MAA banner if needed
+    if ($hasMAA) {
+        $maaBanner.Visibility = 'Visible'
+    }
+
     # Set results list
     $resultsList.ItemsSource = $displayResults
-    
+
+    # Export report button handler
+    $exportReportButton.Add_Click({
+            Export-OffboardingReport -Results $Results
+        })
+
     # Close button handler
     $closeButton.Add_Click({
             $summaryWindow.Close()
         })
-    
+
     # Show dialog
     try {
         if ($null -eq $summaryWindow) {
@@ -5188,21 +6093,27 @@ function Show-DashboardCardResults {
                     <TextBlock x:Name="TitleText" Text="Dashboard Results" FontSize="24" FontWeight="SemiBold" Foreground="#1A202C"/>
                     <TextBlock x:Name="CountText" Text="0 devices found" Foreground="#4A5568" FontSize="14" Margin="0,8,0,0"/>
                 </StackPanel>
-                <Button Grid.Column="1"
-                        x:Name="ExportButton"
-                        Content="Export to CSV"
-                        Height="36"
-                        Padding="16,0"
-                        Background="#0078D4"
-                        Foreground="White"
-                        BorderThickness="0"
-                        VerticalAlignment="Center">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="4"/>
-                        </Style>
-                    </Button.Resources>
-                </Button>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="ExportHTMLButton"
+                            Content="Export HTML"
+                            Height="36"
+                            Padding="16,0"
+                            Background="#1B2A47"
+                            Foreground="White"
+                            BorderThickness="0"
+                            Margin="0,0,8,0">
+                        <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="4"/></Style></Button.Resources>
+                    </Button>
+                    <Button x:Name="ExportButton"
+                            Content="Export to CSV"
+                            Height="36"
+                            Padding="16,0"
+                            Background="#0078D4"
+                            Foreground="White"
+                            BorderThickness="0">
+                        <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="4"/></Style></Button.Resources>
+                    </Button>
+                </StackPanel>
             </Grid>
 
             <!-- Close Button -->
@@ -5259,6 +6170,7 @@ function Show-DashboardCardResults {
     $countText = $dashboardWindow.FindName('CountText')
     $resultsDataGrid = $dashboardWindow.FindName('ResultsDataGrid')
     $exportButton = $dashboardWindow.FindName('ExportButton')
+    $exportHTMLButton = $dashboardWindow.FindName('ExportHTMLButton')
     $closeButton = $dashboardWindow.FindName('CloseButton')
     
     # Ensure DeviceList is an array
@@ -5284,7 +6196,64 @@ function Show-DashboardCardResults {
                 Export-DeviceListToCSV -DeviceList $DeviceList -DefaultFileName $fileName
             }
         })
-    
+
+    # Export HTML button handler
+    $exportHTMLButton.Add_Click({
+            if ($DeviceList.Count -gt 0) {
+                try {
+                    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+                    $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+                    $saveFileDialog.Filter = "HTML Files (*.html)|*.html"
+                    $saveFileDialog.DefaultExt = "html"
+                    $saveFileDialog.FileName = "Dashboard_$($Title.Replace(' ', '_'))_${timestamp}.html"
+                    $saveFileDialog.Title = "Export Dashboard Results"
+
+                    if ($saveFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                        $reportTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                        $version = Get-ScriptVersion
+                        $rows = ""
+                        foreach ($d in $DeviceList) {
+                            $dn = [System.Web.HttpUtility]::HtmlEncode($d.DeviceName)
+                            $sn = [System.Web.HttpUtility]::HtmlEncode($d.SerialNumber)
+                            $os = [System.Web.HttpUtility]::HtmlEncode($d.OperatingSystem)
+                            $lc = [System.Web.HttpUtility]::HtmlEncode($d.LastContact)
+                            $pu = [System.Web.HttpUtility]::HtmlEncode($d.PrimaryUser)
+                            $ow = [System.Web.HttpUtility]::HtmlEncode($d.Ownership)
+                            $rows += "<tr><td>$dn</td><td>$sn</td><td>$os</td><td>$lc</td><td>$pu</td><td>$ow</td></tr>`n"
+                        }
+                        $html = @"
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>$([System.Web.HttpUtility]::HtmlEncode($Title))</title>
+<style>
+body{font-family:'Segoe UI',sans-serif;margin:0;padding:20px;background:#f8f9fa;color:#1a202c}
+.container{max-width:1100px;margin:0 auto}
+.header{background:#1B2A47;color:white;padding:24px 32px;border-radius:8px 8px 0 0}
+.header h1{margin:0 0 8px 0;font-size:22px}.header .meta{font-size:12px;color:#a0aec0}
+table{width:100%;border-collapse:collapse;background:white}
+th{background:#edf2f7;padding:10px 12px;text-align:left;font-size:12px;font-weight:600;color:#4a5568;border-bottom:2px solid #e2e8f0}
+td{padding:10px 12px;font-size:13px;border-bottom:1px solid #e2e8f0}
+tr:nth-child(even){background:#f8f8f8}
+.footer{padding:16px 32px;background:white;border-radius:0 0 8px 8px;border-top:1px solid #e2e8f0;font-size:11px;color:#a0aec0;text-align:center}
+@media print{body{background:white;padding:0}.container{max-width:100%}}
+</style></head><body><div class="container">
+<div class="header"><h1>$([System.Web.HttpUtility]::HtmlEncode($Title))</h1>
+<div class="meta">Generated: $reportTimestamp | $($DeviceList.Count) devices | Device Offboarding Manager $version</div></div>
+<table><thead><tr><th>Device Name</th><th>Serial Number</th><th>OS</th><th>Last Contact</th><th>Primary User</th><th>Ownership</th></tr></thead>
+<tbody>$rows</tbody></table>
+<div class="footer">Device Offboarding Manager - Dashboard Report</div></div></body></html>
+"@
+                        [System.IO.File]::WriteAllText($saveFileDialog.FileName, $html)
+                        Write-Log "Exported dashboard HTML report to: $($saveFileDialog.FileName)"
+                        [System.Windows.MessageBox]::Show("Report exported successfully.", "Export Successful", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+                    }
+                }
+                catch {
+                    Write-Log "Error exporting dashboard HTML: $_" -Severity "ERROR"
+                    [System.Windows.MessageBox]::Show("Error exporting report: $_", "Export Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                }
+            }
+        })
+
     # Close button handler
     $closeButton.Add_Click({
             $dashboardWindow.Close()
@@ -5605,12 +6574,36 @@ $MenuPlaybooks.Add_Checked({
         $Window.FindName('PlaybooksScrollViewer').Visibility = 'Visible'
     })
 
-
+# Wire platform filter ComboBox
+$DashboardPlatformFilter = $Window.FindName('DashboardPlatformFilter')
+$DashboardPlatformFilter.Add_SelectionChanged({
+        if (-not $AuthenticateButton.IsEnabled) {
+            $selected = $DashboardPlatformFilter.SelectedItem.Content
+            Update-DashboardStatistics -Platform $selected
+        }
+    })
 
 function Update-DashboardStatistics {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Platform = "All Platforms"
+    )
+
     try {
-        Write-Log "Updating dashboard statistics..."
+        Write-Log "Updating dashboard statistics (Platform: $Platform)..."
         $startTime = Get-Date
+
+        # Build platform filter clause for $count queries
+        $platformFilter = ""
+        switch ($Platform) {
+            "Windows" { $platformFilter = " and startswith(operatingSystem,'Windows')" }
+            "macOS"   { $platformFilter = " and operatingSystem eq 'macOS'" }
+            "iOS"     { $platformFilter = " and operatingSystem eq 'iOS'" }
+            "Android" { $platformFilter = " and operatingSystem eq 'Android'" }
+            "Linux"   { $platformFilter = " and operatingSystem eq 'Linux'" }
+        }
+        # For standalone filters (no preceding "and"), strip the leading " and "
+        $platformFilterStandalone = if ($platformFilter) { $platformFilter.Substring(5) } else { "" }
 
         # Try $count batch approach first (single API call instead of fetching all devices)
         $countSuccess = $false
@@ -5619,16 +6612,28 @@ function Update-DashboardStatistics {
             $ninetyDaysAgo = (Get-Date).AddDays(-90).ToString('yyyy-MM-ddTHH:mm:ssZ')
             $oneEightyDaysAgo = (Get-Date).AddDays(-180).ToString('yyyy-MM-ddTHH:mm:ssZ')
 
+            # Build Intune/Entra count URLs with optional platform filter
+            $intuneCountUrl = if ($platformFilterStandalone) {
+                "/deviceManagement/managedDevices/`$count?`$filter=$platformFilterStandalone"
+            } else {
+                "/deviceManagement/managedDevices/`$count"
+            }
+            $entraCountUrl = if ($platformFilterStandalone) {
+                "/devices/`$count?`$filter=$platformFilterStandalone"
+            } else {
+                "/devices/`$count"
+            }
+
             $batchBody = @{
                 requests = @(
-                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices/`$count"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "intune"; method = "GET"; url = $intuneCountUrl; headers = @{ "ConsistencyLevel" = "eventual" } }
                     @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities/`$count"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "entra"; method = "GET"; url = "/devices/`$count"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "stale30"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $thirtyDaysAgo"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "stale90"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $ninetyDaysAgo"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "stale180"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $oneEightyDaysAgo"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "personal"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=managedDeviceOwnerType eq 'personal'"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "corporate"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=managedDeviceOwnerType eq 'company'"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "entra"; method = "GET"; url = $entraCountUrl; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "stale30"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $thirtyDaysAgo$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "stale90"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $ninetyDaysAgo$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "stale180"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=lastSyncDateTime lt $oneEightyDaysAgo$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "personal"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=managedDeviceOwnerType eq 'personal'$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "corporate"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=managedDeviceOwnerType eq 'company'$platformFilter"; headers = @{ "ConsistencyLevel" = "eventual" } }
                     @{ id = "osWindows"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=startswith(operatingSystem,'Windows')"; headers = @{ "ConsistencyLevel" = "eventual" } }
                     @{ id = "osmacOS"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'macOS'"; headers = @{ "ConsistencyLevel" = "eventual" } }
                     @{ id = "osiOS"; method = "GET"; url = "/deviceManagement/managedDevices/`$count?`$filter=operatingSystem eq 'iOS'"; headers = @{ "ConsistencyLevel" = "eventual" } }
@@ -5704,22 +6709,26 @@ function Update-DashboardStatistics {
             }
 
             # Build platform groups from $count results for pie chart
-            # Compute "Other" as total minus known OS counts
-            if ($null -eq $osWindows) { $osWindows = 0 }
-            if ($null -eq $osmacOS) { $osmacOS = 0 }
-            if ($null -eq $osiOS) { $osiOS = 0 }
-            if ($null -eq $osAndroid) { $osAndroid = 0 }
-            if ($null -eq $osLinux) { $osLinux = 0 }
-            $osOther = [Math]::Max(0, $intuneCount - ($osWindows + $osmacOS + $osiOS + $osAndroid + $osLinux))
+            # When a specific platform is selected, pie chart shows only that platform
+            if ($platformFilterStandalone) {
+                $platformGroups = @([PSCustomObject]@{ Name = $Platform; Count = $intuneCount })
+            } else {
+                if ($null -eq $osWindows) { $osWindows = 0 }
+                if ($null -eq $osmacOS) { $osmacOS = 0 }
+                if ($null -eq $osiOS) { $osiOS = 0 }
+                if ($null -eq $osAndroid) { $osAndroid = 0 }
+                if ($null -eq $osLinux) { $osLinux = 0 }
+                $osOther = [Math]::Max(0, $intuneCount - ($osWindows + $osmacOS + $osiOS + $osAndroid + $osLinux))
 
-            $platformGroups = @()
-            if ($osWindows -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Windows'; Count = $osWindows } }
-            if ($osmacOS -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'macOS'; Count = $osmacOS } }
-            if ($osiOS -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'iOS'; Count = $osiOS } }
-            if ($osAndroid -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Android'; Count = $osAndroid } }
-            if ($osLinux -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Linux'; Count = $osLinux } }
-            if ($osOther -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Other'; Count = $osOther } }
-            $platformGroups = $platformGroups | Sort-Object Count -Descending
+                $platformGroups = @()
+                if ($osWindows -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Windows'; Count = $osWindows } }
+                if ($osmacOS -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'macOS'; Count = $osmacOS } }
+                if ($osiOS -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'iOS'; Count = $osiOS } }
+                if ($osAndroid -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Android'; Count = $osAndroid } }
+                if ($osLinux -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Linux'; Count = $osLinux } }
+                if ($osOther -gt 0) { $platformGroups += [PSCustomObject]@{ Name = 'Other'; Count = $osOther } }
+                $platformGroups = $platformGroups | Sort-Object Count -Descending
+            }
         }
         catch {
             Write-Log "Dashboard `$count batch failed, falling back to full fetch: $_" -Severity "WARN"
@@ -5727,63 +6736,9 @@ function Update-DashboardStatistics {
 
         # Fallback: full-fetch approach if $count batch failed
         if (-not $countSuccess) {
-            $intuneJob = Start-ThreadJob -ScriptBlock {
-                function Get-GraphPagedResults {
-                    param([string]$Uri)
-                    $results = @()
-                    $nextLink = $Uri
-                    do {
-                        $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
-                        if ($response.value) { $results += $response.value }
-                        $nextLink = $response.'@odata.nextLink'
-                    } while ($nextLink)
-                    return $results
-                }
-                $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,managedDeviceOwnerType"
-                return @(Get-GraphPagedResults -Uri $uri)
-            }
-            $autopilotJob = Start-ThreadJob -ScriptBlock {
-                function Get-GraphPagedResults {
-                    param([string]$Uri)
-                    $results = @()
-                    $nextLink = $Uri
-                    do {
-                        $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
-                        if ($response.value) { $results += $response.value }
-                        $nextLink = $response.'@odata.nextLink'
-                    } while ($nextLink)
-                    return $results
-                }
-                $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime"
-                return @(Get-GraphPagedResults -Uri $uri)
-            }
-            $entraJob = Start-ThreadJob -ScriptBlock {
-                function Get-GraphPagedResults {
-                    param([string]$Uri)
-                    $results = @()
-                    $nextLink = $Uri
-                    do {
-                        $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
-                        if ($response.value) { $results += $response.value }
-                        $nextLink = $response.'@odata.nextLink'
-                    } while ($nextLink)
-                    return $results
-                }
-                $uri = "https://graph.microsoft.com/beta/devices?`$select=displayName,operatingSystem,operatingSystemVersion"
-                return @(Get-GraphPagedResults -Uri $uri)
-            }
-
-            Wait-Job -Job $intuneJob, $autopilotJob, $entraJob | Out-Null
-
-            $intuneDevices = try { @(Receive-Job -Job $intuneJob -ErrorAction Stop) } catch { @() }
-            $autopilotDevices = try { @(Receive-Job -Job $autopilotJob -ErrorAction Stop) } catch { @() }
-            $entraDevices = try { @(Receive-Job -Job $entraJob -ErrorAction Stop) } catch { @() }
-            Remove-Job -Job $intuneJob, $autopilotJob, $entraJob -Force
-
-            # Handle hashtable returns
-            if ($intuneDevices.Count -eq 1 -and $intuneDevices[0] -is [System.Collections.Hashtable]) { $intuneDevices = @($intuneDevices[0].value) }
-            if ($autopilotDevices.Count -eq 1 -and $autopilotDevices[0] -is [System.Collections.Hashtable]) { $autopilotDevices = @($autopilotDevices[0].value) }
-            if ($entraDevices.Count -eq 1 -and $entraDevices[0] -is [System.Collections.Hashtable]) { $entraDevices = @($entraDevices[0].value) }
+            $intuneDevices = @(Get-GraphPagedResults -Uri "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,managedDeviceOwnerType")
+            $autopilotDevices = @(Get-GraphPagedResults -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime")
+            $entraDevices = @(Get-GraphPagedResults -Uri "https://graph.microsoft.com/beta/devices?`$select=displayName,operatingSystem,operatingSystemVersion")
 
             Write-Log "Fallback: Total devices - Intune: $($intuneDevices.Count), Autopilot: $($autopilotDevices.Count), Entra: $($entraDevices.Count)"
 
@@ -5997,6 +6952,29 @@ foreach ($button in $PlaybookButtons) {
                     $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_5.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
+                "OS-Specific Device List" {
+                    $selectedOS = Show-OSPickerDialog
+                    if ($selectedOS) {
+                        $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_6.ps1"
+                        Invoke-Playbook -PlaybookName "$playbookName ($selectedOS)" -PlaybookPath $playbookPath -Description $playbookDescription -Parameters @{ OSFilter = $selectedOS }
+                    }
+                }
+                "Outdated OS Report" {
+                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_7.ps1"
+                    Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
+                }
+                "End-of-Life OS Report" {
+                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_8.ps1"
+                    Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
+                }
+                "BitLocker Key Report" {
+                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_9.ps1"
+                    Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
+                }
+                "FileVault Key Report" {
+                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_10.ps1"
+                    Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
+                }
                 default {
                     [System.Windows.MessageBox]::Show(
                         "This playbook is not yet implemented.",
@@ -6035,6 +7013,28 @@ $SelectAllCheckBox.Add_Click({
 # Initially disable the Offboard button and Export Selected button
 $OffboardButton.IsEnabled = $false
 $ExportSelectedButton.IsEnabled = $false
+
+# Add click handler for "View" groups link in DataGrid
+$SearchResultsDataGrid.Add_PreviewMouseDown({
+        param($sender, $e)
+        $element = $e.OriginalSource
+        # Walk up the visual tree to find the TextBlock with Tag
+        while ($element -and -not ($element -is [System.Windows.Controls.TextBlock] -and $element.Text -eq "View" -and $element.Tag)) {
+            $element = [System.Windows.Media.VisualTreeHelper]::GetParent($element)
+            if (-not $element -or $element -is [System.Windows.Controls.DataGrid]) { $element = $null; break }
+        }
+        if ($element -and $element.Tag) {
+            $entraId = $element.Tag.ToString()
+            if ($entraId) {
+                # Find device name for display
+                $deviceObj = $SearchResultsDataGrid.ItemsSource | Where-Object { $_.EntraDeviceId -eq $entraId } | Select-Object -First 1
+                $devName = if ($deviceObj) { $deviceObj.DeviceName } else { "Device" }
+                Show-DeviceGroupMembership -EntraDeviceId $entraId -DeviceName $devName
+            } else {
+                [System.Windows.MessageBox]::Show("No Entra ID available for this device.", "Groups", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            }
+        }
+    })
 
 # Add selection changed event handler for the DataGrid
 $SearchResultsDataGrid.Add_SelectionChanged({
@@ -6204,7 +7204,8 @@ function Invoke-Playbook {
     param(
         [string]$PlaybookName,
         [string]$PlaybookPath,
-        [string]$Description
+        [string]$Description,
+        [hashtable]$Parameters = @{}
     )
 
     try {
@@ -6234,7 +7235,7 @@ function Invoke-Playbook {
             $status.Text = "Executing playbook..."
             Write-Log "Executing playbook: $PlaybookPath"
 
-            $rawResults = & $PlaybookPath
+            $rawResults = & $PlaybookPath @Parameters
             
             # Filter out only the actual device objects
             $results = $rawResults | Where-Object {
@@ -6273,6 +7274,18 @@ function Invoke-Playbook {
                             EnrollmentDate       = "Enrollment Date"
                             LastSyncDateTime     = "Last Sync"
                             Ownership            = "Ownership"
+                            Model                = "Model"
+                            OSVersion            = "OS Version"
+                            OwnershipType        = "Ownership Type"
+                            CurrentVersion       = "Current Version"
+                            LatestVersion        = "Latest Version"
+                            EndOfSupportDate     = "End of Support Date"
+                            DaysPastEOL          = "Days Past EOL"
+                            DaysSinceLastSync    = "Days Since Last Sync"
+                            KeyId                = "Key ID"
+                            VolumeType           = "Volume Type"
+                            CreatedDateTime      = "Created Date"
+                            HasFileVaultKey      = "Has FileVault Key"
                         }
                         $firstResult = $results | Select-Object -First 1
                         foreach ($prop in $firstResult.PSObject.Properties) {
@@ -6544,16 +7557,18 @@ $ExportPlaybookResultsButton.Add_Click({
 $StaleDevices30Card = $Window.FindName('StaleDevices30Card')
 $StaleDevices30Card.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
+            $previousCursor = $Window.Cursor
             try {
+                $Window.Cursor = [System.Windows.Input.Cursors]::Wait
                 Write-Log "Fetching 30-day stale devices..."
                 $thirtyDaysAgo = (Get-Date).AddDays(-30)
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($thirtyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $staleDevices = Get-GraphPagedResults -Uri $uri
-                
+
                 # Ensure we have a valid array
                 if ($null -eq $staleDevices) { $staleDevices = @() }
-                
-                
+
+
                 $deviceList = @()
                 foreach ($device in $staleDevices) {
                     $deviceList += [PSCustomObject]@{
@@ -6570,14 +7585,17 @@ $StaleDevices30Card.Add_MouseLeftButtonUp({
                         Ownership       = $device.managedDeviceOwnerType
                     }
                 }
-                
+
                 $title = "30 Day Stale Devices"
-                
+
                 Show-DashboardCardResults -Title $title -DeviceList $deviceList
             }
             catch {
                 Write-Log "Error fetching stale devices: $_"
                 [System.Windows.MessageBox]::Show("Error fetching stale devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+            }
+            finally {
+                $Window.Cursor = $previousCursor
             }
         }
     })
@@ -6585,13 +7603,16 @@ $StaleDevices30Card.Add_MouseLeftButtonUp({
 $StaleDevices90Card = $Window.FindName('StaleDevices90Card')
 $StaleDevices90Card.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
+            $previousCursor = $Window.Cursor
             try {
+                $Window.Cursor = [System.Windows.Input.Cursors]::Wait
                 Write-Log "Fetching 90-day stale devices..."
                 $ninetyDaysAgo = (Get-Date).AddDays(-90)
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($ninetyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $staleDevices = Get-GraphPagedResults -Uri $uri
-                
-                
+
+                if ($null -eq $staleDevices) { $staleDevices = @() }
+
                 $deviceList = @()
                 foreach ($device in $staleDevices) {
                     $deviceList += [PSCustomObject]@{
@@ -6608,14 +7629,17 @@ $StaleDevices90Card.Add_MouseLeftButtonUp({
                         Ownership       = $device.managedDeviceOwnerType
                     }
                 }
-                
+
                 $title = "90 Day Stale Devices"
-                
+
                 Show-DashboardCardResults -Title $title -DeviceList $deviceList
             }
             catch {
                 Write-Log "Error fetching stale devices: $_"
                 [System.Windows.MessageBox]::Show("Error fetching stale devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+            }
+            finally {
+                $Window.Cursor = $previousCursor
             }
         }
     })
@@ -6623,13 +7647,16 @@ $StaleDevices90Card.Add_MouseLeftButtonUp({
 $StaleDevices180Card = $Window.FindName('StaleDevices180Card')
 $StaleDevices180Card.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
+            $previousCursor = $Window.Cursor
             try {
+                $Window.Cursor = [System.Windows.Input.Cursors]::Wait
                 Write-Log "Fetching 180-day stale devices..."
                 $hundredEightyDaysAgo = (Get-Date).AddDays(-180)
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($hundredEightyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $staleDevices = Get-GraphPagedResults -Uri $uri
-                
-                
+
+                if ($null -eq $staleDevices) { $staleDevices = @() }
+
                 $deviceList = @()
                 foreach ($device in $staleDevices) {
                     $deviceList += [PSCustomObject]@{
@@ -6646,14 +7673,17 @@ $StaleDevices180Card.Add_MouseLeftButtonUp({
                         Ownership       = $device.managedDeviceOwnerType
                     }
                 }
-                
+
                 $title = "180 Day Stale Devices"
-                
+
                 Show-DashboardCardResults -Title $title -DeviceList $deviceList
             }
             catch {
                 Write-Log "Error fetching stale devices: $_"
                 [System.Windows.MessageBox]::Show("Error fetching stale devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+            }
+            finally {
+                $Window.Cursor = $previousCursor
             }
         }
     })
@@ -6661,11 +7691,13 @@ $StaleDevices180Card.Add_MouseLeftButtonUp({
 $PersonalDevicesCard = $Window.FindName('PersonalDevicesCard')
 $PersonalDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
+            $previousCursor = $Window.Cursor
             try {
+                $Window.Cursor = [System.Windows.Input.Cursors]::Wait
                 Write-Log "Fetching personal devices..."
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'personal'&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $personalDevices = Get-GraphPagedResults -Uri $uri
-                
+
                 $deviceList = @()
                 foreach ($device in $personalDevices) {
                     $deviceList += [PSCustomObject]@{
@@ -6682,14 +7714,17 @@ $PersonalDevicesCard.Add_MouseLeftButtonUp({
                         Ownership       = "Personal"
                     }
                 }
-                
+
                 $title = "Personal Devices"
-                
+
                 Show-DashboardCardResults -Title $title -DeviceList $deviceList
             }
             catch {
                 Write-Log "Error fetching personal devices: $_"
                 [System.Windows.MessageBox]::Show("Error fetching personal devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+            }
+            finally {
+                $Window.Cursor = $previousCursor
             }
         }
     })
@@ -6697,11 +7732,13 @@ $PersonalDevicesCard.Add_MouseLeftButtonUp({
 $CorporateDevicesCard = $Window.FindName('CorporateDevicesCard')
 $CorporateDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
+            $previousCursor = $Window.Cursor
             try {
+                $Window.Cursor = [System.Windows.Input.Cursors]::Wait
                 Write-Log "Fetching corporate devices..."
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'company'&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $corporateDevices = Get-GraphPagedResults -Uri $uri
-                
+
                 $deviceList = @()
                 foreach ($device in $corporateDevices) {
                     $deviceList += [PSCustomObject]@{
@@ -6718,14 +7755,17 @@ $CorporateDevicesCard.Add_MouseLeftButtonUp({
                         Ownership       = "Corporate"
                     }
                 }
-                
+
                 $title = "Corporate Devices"
-                
+
                 Show-DashboardCardResults -Title $title -DeviceList $deviceList
             }
             catch {
                 Write-Log "Error fetching corporate devices: $_"
                 [System.Windows.MessageBox]::Show("Error fetching corporate devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+            }
+            finally {
+                $Window.Cursor = $previousCursor
             }
         }
     })
@@ -6734,7 +7774,9 @@ $CorporateDevicesCard.Add_MouseLeftButtonUp({
 $IntuneDevicesCard = $Window.FindName('IntuneDevicesCard')
 $IntuneDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
+            $previousCursor = $Window.Cursor
             try {
+                $Window.Cursor = [System.Windows.Input.Cursors]::Wait
                 Write-Log "Fetching all Intune devices..."
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $intuneDevices = Get-GraphPagedResults -Uri $uri
@@ -6755,14 +7797,17 @@ $IntuneDevicesCard.Add_MouseLeftButtonUp({
                         Ownership       = $device.managedDeviceOwnerType
                     }
                 }
-                
+
                 $title = "All Intune Devices"
-                
+
                 Show-DashboardCardResults -Title $title -DeviceList $deviceList
             }
             catch {
                 Write-Log "Error fetching Intune devices: $_"
                 [System.Windows.MessageBox]::Show("Error fetching Intune devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+            }
+            finally {
+                $Window.Cursor = $previousCursor
             }
         }
     })
@@ -6770,7 +7815,9 @@ $IntuneDevicesCard.Add_MouseLeftButtonUp({
 $AutopilotDevicesCard = $Window.FindName('AutopilotDevicesCard')
 $AutopilotDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
+            $previousCursor = $Window.Cursor
             try {
+                $Window.Cursor = [System.Windows.Input.Cursors]::Wait
                 Write-Log "Fetching all Autopilot devices..."
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=displayName,serialNumber,lastContactedDateTime,model,manufacturer,userPrincipalName,systemFamily,managedDeviceOwnerType"
                 $autopilotDevices = Get-GraphPagedResults -Uri $uri
@@ -6791,14 +7838,17 @@ $AutopilotDevicesCard.Add_MouseLeftButtonUp({
                         Ownership       = $device.managedDeviceOwnerType
                     }
                 }
-                
+
                 $title = "All Autopilot Devices"
-                
+
                 Show-DashboardCardResults -Title $title -DeviceList $deviceList
             }
             catch {
                 Write-Log "Error fetching Autopilot devices: $_"
                 [System.Windows.MessageBox]::Show("Error fetching Autopilot devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+            }
+            finally {
+                $Window.Cursor = $previousCursor
             }
         }
     })
@@ -6806,11 +7856,13 @@ $AutopilotDevicesCard.Add_MouseLeftButtonUp({
 $EntraIDDevicesCard = $Window.FindName('EntraIDDevicesCard')
 $EntraIDDevicesCard.Add_MouseLeftButtonUp({
         if (-not $AuthenticateButton.IsEnabled) {
+            $previousCursor = $Window.Cursor
             try {
+                $Window.Cursor = [System.Windows.Input.Cursors]::Wait
                 Write-Log "Fetching all Entra ID devices..."
                 $uri = "https://graph.microsoft.com/beta/devices?`$select=displayName,operatingSystem,operatingSystemVersion,approximateLastSignInDateTime,deviceOwnership"
                 $entraDevices = Get-GraphPagedResults -Uri $uri
-                
+
                 $deviceList = @()
                 foreach ($device in $entraDevices) {
                     $deviceList += [PSCustomObject]@{
@@ -6827,14 +7879,17 @@ $EntraIDDevicesCard.Add_MouseLeftButtonUp({
                         Ownership       = if ($device.deviceOwnership) { $device.deviceOwnership } else { "N/A" }
                     }
                 }
-                
+
                 $title = "All Entra ID Devices"
-                
+
                 Show-DashboardCardResults -Title $title -DeviceList $deviceList
             }
             catch {
                 Write-Log "Error fetching Entra ID devices: $_"
                 [System.Windows.MessageBox]::Show("Error fetching Entra ID devices. Check logs for details.", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+            }
+            finally {
+                $Window.Cursor = $previousCursor
             }
         }
     })
