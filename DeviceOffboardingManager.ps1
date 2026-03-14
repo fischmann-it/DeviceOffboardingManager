@@ -420,8 +420,8 @@ function ConvertTo-SafeDateTime {
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                CornerRadius="2" 
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="6"
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -487,7 +487,7 @@ function ConvertTo-SafeDateTime {
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Background="{TemplateBinding Background}"
-                                CornerRadius="2"
+                                CornerRadius="6"
                                 BorderThickness="0">
                             <ContentPresenter HorizontalAlignment="Center" 
                                             VerticalAlignment="Center"/>
@@ -750,26 +750,41 @@ function ConvertTo-SafeDateTime {
         <!-- Sidebar -->
         <Border Grid.Column="0" Background="#2D2D2D">
             <DockPanel>
-                <!-- Menu Items -->
-                <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,0">
-                    <!-- Prominent Connect Button -->
-                    <Border Margin="15,5,15,10" 
-                            Background="#0078D4" 
-                            CornerRadius="4">
-                        <Button x:Name="AuthenticateButton" 
-                                Content="Connect to MS Graph" 
-                                Style="{StaticResource SidebarButtonStyle}"
-                                Background="Transparent"
-                                Foreground="White"
-                                Height="40"
-                                Margin="0"/>
+                <!-- Top: Connect Button + Tenant Info -->
+                <StackPanel DockPanel.Dock="Top" Margin="0,10,0,0">
+                    <!-- Connect Button with Status Dot -->
+                    <Border Margin="15,5,15,10"
+                            Background="#0078D4"
+                            CornerRadius="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="AuthenticateButton"
+                                    Content="Connect to MS Graph"
+                                    Style="{StaticResource SidebarButtonStyle}"
+                                    Background="Transparent"
+                                    Foreground="White"
+                                    Height="40"
+                                    Margin="0"
+                                    Grid.ColumnSpan="2"/>
+                            <Ellipse x:Name="ConnectionStatusDot"
+                                     Width="10" Height="10"
+                                     Fill="#FC8181"
+                                     Grid.Column="1"
+                                     Margin="0,0,12,0"
+                                     VerticalAlignment="Center"
+                                     IsHitTestVisible="False"
+                                     ToolTip="Disconnected"/>
+                        </Grid>
                     </Border>
 
                     <!-- Tenant Info Section -->
                     <Border x:Name="TenantInfoSection"
                             Margin="15,0,15,10"
                             Background="#404040"
-                            CornerRadius="4"
+                            CornerRadius="6"
                             Visibility="Collapsed">
                         <StackPanel Margin="12,8">
                             <TextBlock Text="Connected Tenant"
@@ -791,7 +806,7 @@ function ConvertTo-SafeDateTime {
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                
+
                                 <TextBlock Text="Domain: "
                                          Grid.Row="0"
                                          Foreground="#A0A0A0"
@@ -829,11 +844,14 @@ function ConvertTo-SafeDateTime {
                             </Grid>
                         </StackPanel>
                     </Border>
+                </StackPanel>
 
+                <!-- Bottom: Utility Buttons -->
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,0">
                     <!-- Version Info -->
-                    <Border Background="#1B2A47" 
-                            Margin="15,5,15,5" 
-                            CornerRadius="6" 
+                    <Border Background="#1B2A47"
+                            Margin="15,5,15,5"
+                            CornerRadius="6"
                             Padding="10">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -870,50 +888,57 @@ function ConvertTo-SafeDateTime {
                     <Button x:Name="PrerequisitesButton"
                             Content="Prerequisites"
                             Style="{StaticResource SidebarButtonStyle}"
+                            ToolTip="Check required permissions and modules"
                             Margin="15,5"/>
-                    <Button x:Name="logs_button" 
+                    <Button x:Name="logs_button"
                             Content="Logs"
                             Style="{StaticResource SidebarButtonStyle}"
+                            ToolTip="Open log files directory"
                             Margin="15,5"/>
                     <Button x:Name="disconnect_button"
                             Content="Disconnect"
                             Style="{StaticResource SidebarButtonStyle}"
+                            ToolTip="Disconnect from Microsoft Graph"
                             IsEnabled="False"
                             Margin="15,5"/>
 
                     <Button x:Name="changelog_button"
                             Content="Changelog"
                             Style="{StaticResource SidebarButtonStyle}"
+                            ToolTip="View version history and release notes"
                             Margin="15,5,15,15"/>
                 </StackPanel>
-                
-                <!-- Navigation Menu -->
+
+                <!-- Center: Navigation Menu -->
                 <StackPanel Margin="0,10,0,0">
                     <RadioButton x:Name="MenuHome"
                                 Content="Home"
                                 Style="{StaticResource MenuButtonStyle}"
+                                ToolTip="Overview and getting started"
                                 IsChecked="True"/>
                     <RadioButton x:Name="MenuDashboard"
                                 Content="Dashboard"
                                 Style="{StaticResource MenuButtonStyle}"
+                                ToolTip="Device statistics and analytics"
                                 IsEnabled="False"/>
                     <RadioButton x:Name="MenuDeviceManagement"
                                 Content="Device Offboarding"
                                 Style="{StaticResource MenuButtonStyle}"
+                                ToolTip="Search and offboard devices"
                                 IsEnabled="False"/>
                     <RadioButton x:Name="MenuPlaybooks"
                                 Content="Playbooks"
                                 Style="{StaticResource MenuButtonStyle}"
+                                ToolTip="Automated reports and tasks"
                                 IsEnabled="False"/>
-                                
+
                     <!-- Feedback Section -->
-                    <Border Margin="15,5,15,5" 
-                            Background="#1A365D" 
-                            CornerRadius="4">
+                    <Border Margin="15,15,15,5"
+                            Background="#1A365D"
+                            CornerRadius="6">
                         <StackPanel Margin="12,8">
-                            <TextBlock Text="Have feedback or found a bug?" 
-                                     Foreground="#FCD34D"
-                                     FontWeight="SemiBold"
+                            <TextBlock Text="Have feedback or found a bug?"
+                                     Foreground="#60A5FA"
                                      FontSize="12"
                                      Margin="0,4,0,4"
                                      TextWrapping="Wrap"/>
@@ -940,7 +965,7 @@ function ConvertTo-SafeDateTime {
                 </Grid.RowDefinitions>
 
                 <!-- Header -->
-                <StackPanel Grid.Row="0" Margin="0,0,0,30">
+                <StackPanel Grid.Row="0" Margin="0,0,0,20">
                     <TextBlock Text="Device Offboarding Manager"
                               FontSize="32"
                               FontWeight="Bold"
@@ -948,31 +973,23 @@ function ConvertTo-SafeDateTime {
                     <TextBlock Text="Streamline your device lifecycle management across Microsoft services"
                               FontSize="16"
                               Opacity="0.7"/>
-                    
-                    <!-- Warning/Disclaimer Section -->
-                    <Border Background="#DC2626"
-                            CornerRadius="8"
-                            Margin="0,20,0,0"
-                            Effect="{StaticResource CardShadow}">
-                        <StackPanel Margin="20">
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                <Path Data="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"
-                                      Fill="White"
-                                      Width="24"
-                                      Height="24"
-                                      Stretch="Uniform"
-                                      Margin="0,0,10,0"/>
-                                <TextBlock Text="PREVIEW WARNING"
-                                         FontSize="18"
-                                         FontWeight="Bold"
-                                         Foreground="White"/>
-                            </StackPanel>
-                            <TextBlock TextWrapping="Wrap"
-                                     Foreground="White"
-                                     FontSize="14"
-                                     LineHeight="20">
-                                This tool is currently in PREVIEW. Please exercise extreme caution when using it. Device deletion operations are PERMANENT and CANNOT be undone. Always verify the selected devices before proceeding with any deletion operation. It is recommended to test the tool in a non-production environment first.
-                            </TextBlock>
+
+                    <!-- Slim Preview Info Bar -->
+                    <Border Background="#92400E"
+                            CornerRadius="6"
+                            Margin="0,15,0,0"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"
+                                  Fill="#FDE68A"
+                                  Width="16"
+                                  Height="16"
+                                  Stretch="Uniform"
+                                  Margin="0,0,8,0"/>
+                            <TextBlock Text="PREVIEW -- Device deletion operations are permanent and cannot be undone. Test in a non-production environment first."
+                                     Foreground="#FDE68A"
+                                     FontSize="12"
+                                     VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -988,42 +1005,47 @@ function ConvertTo-SafeDateTime {
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Quick Actions -->
-                    <Border Grid.Column="0" Grid.Row="0" 
-                            Background="#1B2A47" 
-                            CornerRadius="8" 
+                    <!-- Get Started -->
+                    <Border Grid.Column="0" Grid.Row="0"
+                            Background="#1B2A47"
+                            CornerRadius="8"
                             Margin="0,0,10,10">
                         <Grid Margin="20">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-                            <TextBlock Text="Quick Actions"
+                            <TextBlock Text="Get Started"
                                      FontSize="20"
                                      FontWeight="SemiBold"
                                      Foreground="White"
+                                     Margin="0,0,0,10"/>
+                            <TextBlock Grid.Row="1"
+                                     Text="Connect to Microsoft Graph to begin managing devices."
+                                     FontSize="13"
+                                     Foreground="#A0AEC0"
+                                     TextWrapping="Wrap"
                                      Margin="0,0,0,15"/>
-                            <StackPanel Grid.Row="1">
-                                <TextBlock Text="→ Connect to MS Graph in the sidebar"
-                                         FontSize="14"
-                                         Foreground="#A0AEC0"
-                                         Margin="0,0,0,8"/>
-                                <TextBlock Text="→ Check permissions after connecting"
-                                         FontSize="14"
-                                         Foreground="#A0AEC0"
-                                         Margin="0,0,0,8"/>
-                                <TextBlock Text="→ Access device management tools"
-                                         FontSize="14"
-                                         Foreground="#A0AEC0"
-                                         Margin="0,0,0,8"/>
-                            </StackPanel>
+                            <Button x:Name="HomeConnectButton"
+                                    Grid.Row="2"
+                                    Content="Connect to MS Graph"
+                                    Height="36"
+                                    Padding="16,0"
+                                    Background="#0078D4"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Top"
+                                    Cursor="Hand"
+                                    ToolTip="Open authentication dialog"/>
                         </Grid>
                     </Border>
 
                     <!-- Key Features -->
-                    <Border Grid.Column="1" Grid.Row="0" 
-                            Background="#172A3A" 
-                            CornerRadius="8" 
+                    <Border Grid.Column="1" Grid.Row="0"
+                            Background="#172A3A"
+                            CornerRadius="8"
                             Margin="10,0,0,10">
                         <Grid Margin="20">
                             <Grid.RowDefinitions>
@@ -1036,15 +1058,15 @@ function ConvertTo-SafeDateTime {
                                      Foreground="White"
                                      Margin="0,0,0,15"/>
                             <StackPanel Grid.Row="1">
-                                <TextBlock Text="• Real-time device monitoring"
+                                <TextBlock Text="-- Real-time device monitoring"
                                          FontSize="14"
                                          Foreground="#A0AEC0"
                                          Margin="0,0,0,8"/>
-                                <TextBlock Text="• Bulk device operations"
+                                <TextBlock Text="-- Bulk device operations"
                                          FontSize="14"
                                          Foreground="#A0AEC0"
                                          Margin="0,0,0,8"/>
-                                <TextBlock Text="• Automated management tasks"
+                                <TextBlock Text="-- Automated management tasks"
                                          FontSize="14"
                                          Foreground="#A0AEC0"
                                          Margin="0,0,0,8"/>
@@ -1052,10 +1074,10 @@ function ConvertTo-SafeDateTime {
                         </Grid>
                     </Border>
 
-                    <!-- Services -->
-                    <Border Grid.Column="0" Grid.Row="1" 
-                            Background="#2D3748" 
-                            CornerRadius="8" 
+                    <!-- Supported Services -->
+                    <Border Grid.Column="0" Grid.Row="1"
+                            Background="#2D3748"
+                            CornerRadius="8"
                             Margin="0,10,10,0">
                         <Grid Margin="20">
                             <Grid.RowDefinitions>
@@ -1072,26 +1094,24 @@ function ConvertTo-SafeDateTime {
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                
-                                <!-- Left Column -->
+
                                 <StackPanel Grid.Column="0">
-                                    <TextBlock Text="• Intune"
+                                    <TextBlock Text="-- Intune"
                                              FontSize="14"
                                              Foreground="#A0AEC0"
                                              Margin="0,0,10,8"/>
-                                    <TextBlock Text="• Autopilot"
+                                    <TextBlock Text="-- Autopilot"
                                              FontSize="14"
                                              Foreground="#A0AEC0"
                                              Margin="0,0,10,8"/>
                                 </StackPanel>
-                                
-                                <!-- Right Column -->
+
                                 <StackPanel Grid.Column="1">
-                                    <TextBlock Text="• Entra ID"
+                                    <TextBlock Text="-- Entra ID"
                                              FontSize="14"
                                              Foreground="#A0AEC0"
                                              Margin="0,0,0,8"/>
-                                    <TextBlock Text="• Defender for Endpoint"
+                                    <TextBlock Text="-- Defender for Endpoint"
                                              FontSize="14"
                                              Foreground="#A0AEC0"
                                              Margin="0,0,0,8"/>
@@ -1100,34 +1120,58 @@ function ConvertTo-SafeDateTime {
                         </Grid>
                     </Border>
 
-                    <!-- Navigation -->
-                    <Border Grid.Column="1" Grid.Row="1" 
-                            Background="#1A365D" 
-                            CornerRadius="8" 
+                    <!-- Quick Navigation -->
+                    <Border Grid.Column="1" Grid.Row="1"
+                            Background="#1A365D"
+                            CornerRadius="8"
                             Margin="10,10,0,0">
                         <Grid Margin="20">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-                            <TextBlock Text="Navigation Guide"
+                            <TextBlock Text="Quick Navigation"
                                      FontSize="20"
                                      FontWeight="SemiBold"
                                      Foreground="White"
                                      Margin="0,0,0,15"/>
-                            <StackPanel Grid.Row="1">
-                                <TextBlock Text="Dashboard → Device statistics"
-                                         FontSize="14"
-                                         Foreground="#A0AEC0"
-                                         Margin="0,0,0,8"/>
-                                <TextBlock Text="Device Management → Search &amp; manage"
-                                         FontSize="14"
-                                         Foreground="#A0AEC0"
-                                         Margin="0,0,0,8"/>
-                                <TextBlock Text="Playbooks → Automated tasks"
-                                         FontSize="14"
-                                         Foreground="#A0AEC0"
-                                         Margin="0,0,0,8"/>
+                            <StackPanel Grid.Row="1" VerticalAlignment="Top">
+                                <Button x:Name="HomeNavDashboard"
+                                        Content="Dashboard"
+                                        Height="32"
+                                        Padding="12,0"
+                                        Background="#2D3748"
+                                        Foreground="White"
+                                        BorderThickness="0"
+                                        Margin="0,0,0,8"
+                                        HorizontalAlignment="Stretch"
+                                        IsEnabled="False"
+                                        Cursor="Hand"
+                                        ToolTip="View device statistics and analytics"/>
+                                <Button x:Name="HomeNavDeviceMgmt"
+                                        Content="Device Offboarding"
+                                        Height="32"
+                                        Padding="12,0"
+                                        Background="#2D3748"
+                                        Foreground="White"
+                                        BorderThickness="0"
+                                        Margin="0,0,0,8"
+                                        HorizontalAlignment="Stretch"
+                                        IsEnabled="False"
+                                        Cursor="Hand"
+                                        ToolTip="Search and offboard devices"/>
+                                <Button x:Name="HomeNavPlaybooks"
+                                        Content="Playbooks"
+                                        Height="32"
+                                        Padding="12,0"
+                                        Background="#2D3748"
+                                        Foreground="White"
+                                        BorderThickness="0"
+                                        Margin="0,0,0,8"
+                                        HorizontalAlignment="Stretch"
+                                        IsEnabled="False"
+                                        Cursor="Hand"
+                                        ToolTip="Run automated reports and tasks"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -1141,10 +1185,40 @@ function ConvertTo-SafeDateTime {
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
+                <!-- Page Header -->
+                <Grid Grid.Row="0" Margin="20,10,20,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Dashboard"
+                                 FontSize="28"
+                                 FontWeight="Bold"
+                                 Foreground="#323130"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="Overview of your device environment"
+                                 FontSize="14"
+                                 Opacity="0.7"/>
+                    </StackPanel>
+                    <Button x:Name="DashboardRefreshButton"
+                            Grid.Column="1"
+                            Content="Refresh"
+                            Height="32"
+                            Padding="16,0"
+                            Background="#0078D4"
+                            Foreground="White"
+                            BorderThickness="0"
+                            VerticalAlignment="Top"
+                            Cursor="Hand"
+                            ToolTip="Refresh dashboard statistics"/>
+                </Grid>
+
                 <!-- Platform Filter -->
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="20,10,20,4" VerticalAlignment="Center">
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="20,10,20,4" VerticalAlignment="Center">
                     <TextBlock Text="Platform:" Foreground="#A0AEC0" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <ComboBox x:Name="DashboardPlatformFilter" Width="160" SelectedIndex="0">
                         <ComboBoxItem Content="All Platforms"/>
@@ -1157,7 +1231,7 @@ function ConvertTo-SafeDateTime {
                 </StackPanel>
 
                 <!-- Top Row Statistics -->
-                <UniformGrid Grid.Row="1" Rows="1" Margin="20,10,20,10">
+                <UniformGrid Grid.Row="2" Rows="1" Margin="20,10,20,10">
                     <Border x:Name="IntuneDevicesCard" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Cursor="Hand">
                         <Border.Style>
                             <Style TargetType="Border">
@@ -1192,7 +1266,7 @@ function ConvertTo-SafeDateTime {
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
                                      Text="Total Managed Devices"
-                                     Foreground="#718096"
+                                     Foreground="#A0AEC0"
                                      FontSize="12"/>
                         </Grid>
                     </Border>
@@ -1231,7 +1305,7 @@ function ConvertTo-SafeDateTime {
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
                                      Text="Total Registered Devices"
-                                     Foreground="#718096"
+                                     Foreground="#A0AEC0"
                                      FontSize="12"/>
                         </Grid>
                     </Border>
@@ -1270,14 +1344,14 @@ function ConvertTo-SafeDateTime {
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
                                      Text="Total Entra ID Devices"
-                                     Foreground="#718096"
+                                     Foreground="#A0AEC0"
                                      FontSize="12"/>
                         </Grid>
                     </Border>
                 </UniformGrid>
 
                 <!-- Middle Row - Stale Devices -->
-                <UniformGrid Grid.Row="2" Rows="1" Margin="20,10,20,10">
+                <UniformGrid Grid.Row="3" Rows="1" Margin="20,10,20,10">
                     <Border x:Name="StaleDevices30Card" Background="#1B2A47" Margin="0,0,10,0" CornerRadius="8" Cursor="Hand">
                         <Border.Style>
                             <Style TargetType="Border">
@@ -1313,14 +1387,15 @@ function ConvertTo-SafeDateTime {
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
                                      Text="Devices Not Synced"
-                                     Foreground="#718096"
+                                     Foreground="#A0AEC0"
                                      FontSize="12"/>
-                            <ProgressBar Grid.Row="3"
+                            <ProgressBar x:Name="StaleDevices30Progress"
+                                       Grid.Row="3"
                                        Height="4"
                                        Margin="0,12,0,0"
                                        Background="#2D3748"
                                        Foreground="#F6AD55"
-                                       Value="30"/>
+                                       Value="0"/>
                         </Grid>
                     </Border>
 
@@ -1359,14 +1434,15 @@ function ConvertTo-SafeDateTime {
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
                                      Text="Devices Not Synced"
-                                     Foreground="#718096"
+                                     Foreground="#A0AEC0"
                                      FontSize="12"/>
-                            <ProgressBar Grid.Row="3"
+                            <ProgressBar x:Name="StaleDevices90Progress"
+                                       Grid.Row="3"
                                        Height="4"
                                        Margin="0,12,0,0"
                                        Background="#2D3748"
                                        Foreground="#FC8181"
-                                       Value="60"/>
+                                       Value="0"/>
                         </Grid>
                     </Border>
 
@@ -1405,20 +1481,21 @@ function ConvertTo-SafeDateTime {
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
                                      Text="Devices Not Synced"
-                                     Foreground="#718096"
+                                     Foreground="#A0AEC0"
                                      FontSize="12"/>
-                            <ProgressBar Grid.Row="3"
+                            <ProgressBar x:Name="StaleDevices180Progress"
+                                       Grid.Row="3"
                                        Height="4"
                                        Margin="0,12,0,0"
                                        Background="#2D3748"
                                        Foreground="#F56565"
-                                       Value="90"/>
+                                       Value="0"/>
                         </Grid>
                     </Border>
                 </UniformGrid>
 
                 <!-- Bottom Row - Personal/Corporate and Charts -->
-                <Grid Grid.Row="3" Margin="20,10,20,20">
+                <Grid Grid.Row="4" Margin="20,10,20,20">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
@@ -1461,7 +1538,7 @@ function ConvertTo-SafeDateTime {
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
                                      Text="BYOD Devices in Intune"
-                                     Foreground="#718096"
+                                     Foreground="#A0AEC0"
                                      FontSize="12"/>
                             <ProgressBar x:Name="PersonalDevicesProgress"
                                        Grid.Row="3"
@@ -1509,7 +1586,7 @@ function ConvertTo-SafeDateTime {
                                      Margin="0,0,0,8"/>
                             <TextBlock Grid.Row="2"
                                      Text="Company Devices in Intune"
-                                     Foreground="#718096"
+                                     Foreground="#A0AEC0"
                                      FontSize="12"/>
                             <ProgressBar x:Name="CorporateDevicesProgress"
                                        Grid.Row="3"
@@ -1574,6 +1651,31 @@ function ConvertTo-SafeDateTime {
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
+                <!-- Page Header -->
+                <Grid Grid.Row="0" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Device Offboarding"
+                                 FontSize="28"
+                                 FontWeight="Bold"
+                                 Foreground="#323130"
+                                 Margin="0,0,0,4"/>
+                        <TextBlock Text="Search, select, and offboard devices from Microsoft services"
+                                 FontSize="14"
+                                 Opacity="0.7"/>
+                    </StackPanel>
+                    <TextBlock x:Name="ResultCountText"
+                             Grid.Column="1"
+                             Text=""
+                             FontSize="13"
+                             Foreground="#4A5568"
+                             VerticalAlignment="Bottom"
+                             Margin="0,0,0,4"/>
+                </Grid>
+
                 <!-- Search Controls -->
                 <Grid Grid.Row="1" Margin="0,0,0,10">
                     <Grid.ColumnDefinitions>
@@ -1581,21 +1683,54 @@ function ConvertTo-SafeDateTime {
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <ComboBox x:Name="dropdown" 
+                    <ComboBox x:Name="dropdown"
                               Margin="0,0,8,0"/>
-                    <TextBox x:Name="SearchInputText"
-                             Grid.Column="1"
-                             Margin="0,0,8,0"
-                             TextWrapping="NoWrap"/>
-                    <Button x:Name="bulk_import_button" 
-                            Grid.Column="2" 
-                            Content="Bulk Import" 
+                    <!-- Search Input with Placeholder -->
+                    <Grid Grid.Column="1" Margin="0,0,8,0">
+                        <TextBox x:Name="SearchInputText"
+                                 TextWrapping="NoWrap"/>
+                        <TextBlock x:Name="SearchPlaceholder"
+                                 Text="Enter device name, serial number, or ID..."
+                                 Foreground="#A0A0A0"
+                                 FontSize="12"
+                                 IsHitTestVisible="False"
+                                 VerticalAlignment="Center"
+                                 Margin="10,0,0,0"/>
+                    </Grid>
+                    <Button x:Name="bulk_import_button"
+                            Grid.Column="2"
+                            Content="Bulk Import"
+                            ToolTip="Import devices from a CSV file"
                             Margin="0,0,8,0"/>
-                    <Button x:Name="SearchButton" 
-                            Grid.Column="3" 
-                            Content="Search"/>
+                    <Button x:Name="SearchButton"
+                            Grid.Column="3"
+                            Content="Search"
+                            Margin="0,0,8,0"/>
+                    <Button x:Name="FilterToggleButton"
+                            Grid.Column="4"
+                            Content="Filter"
+                            Height="28"
+                            Padding="12,5"
+                            Background="#2D3748"
+                            Foreground="White"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            ToolTip="Toggle column filters"
+                            Margin="0,0,8,0"/>
+                    <Button x:Name="ClearSearchButton"
+                            Grid.Column="5"
+                            Content="Clear"
+                            Height="28"
+                            Padding="12,5"
+                            Background="#718096"
+                            Foreground="White"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            ToolTip="Clear search results and filters"/>
                 </Grid>
 
                 <!-- Filter Row -->
@@ -1641,33 +1776,33 @@ function ConvertTo-SafeDateTime {
                                                   Header="Device Name" 
                                                   Width="*"
                                                   IsReadOnly="True"/>
-                        <DataGridTextColumn Binding="{Binding SerialNumber}" 
-                                                  Header="Serial Number" 
+                        <DataGridTextColumn Binding="{Binding SerialNumber}"
+                                                  Header="Serial Number"
+                                                  Width="140"
+                                                  IsReadOnly="True"/>
+                        <DataGridTextColumn Binding="{Binding OperatingSystem}"
+                                                  Header="OS"
+                                                  Width="120"
+                                                  IsReadOnly="True"/>
+                        <DataGridTextColumn Binding="{Binding PrimaryUser}"
+                                                  Header="Primary User"
                                                   Width="*"
                                                   IsReadOnly="True"/>
-                        <DataGridTextColumn Binding="{Binding OperatingSystem}" 
-                                                  Header="OS" 
-                                                  Width="*"
+                        <DataGridTextColumn Binding="{Binding AzureADLastContact}"
+                                                  Header="Entra ID Last Contact"
+                                                  Width="150"
                                                   IsReadOnly="True"/>
-                        <DataGridTextColumn Binding="{Binding PrimaryUser}" 
-                                                  Header="Primary User" 
-                                                  Width="*"
-                                                  IsReadOnly="True"/>
-                        <DataGridTextColumn Binding="{Binding AzureADLastContact}" 
-                                                  Header="Entra ID Last Contact" 
-                                                  Width="*"
-                                                  IsReadOnly="True"/>
-                        <DataGridTextColumn Binding="{Binding IntuneLastContact}" 
-                                                  Header="Intune Last Contact" 
-                                                  Width="*"
+                        <DataGridTextColumn Binding="{Binding IntuneLastContact}"
+                                                  Header="Intune Last Contact"
+                                                  Width="150"
                                                   IsReadOnly="True"/>
                         <DataGridTextColumn Binding="{Binding AutopilotLastContact}"
                                                   Header="Autopilot Last Contact"
-                                                  Width="*"
+                                                  Width="150"
                                                   IsReadOnly="True"/>
                         <DataGridTextColumn Binding="{Binding ComplianceState}"
                                                   Header="Compliance"
-                                                  Width="*"
+                                                  Width="100"
                                                   IsReadOnly="True"/>
                         <DataGridTemplateColumn Header="Groups" Width="70">
                             <DataGridTemplateColumn.CellTemplate>
@@ -1768,21 +1903,23 @@ function ConvertTo-SafeDateTime {
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- Left Side -->
-                    <Button x:Name="OffboardButton"
-                            Content="Offboard device(s)"
+                    <!-- Export Buttons (Left) -->
+                    <Button x:Name="ExportSearchResultsButton"
+                            Content="Export Results"
                             Grid.Column="0"
                             Height="40"
+                            MinWidth="140"
                             Padding="20,0"
-                            Background="#DC2626"
+                            Background="#0078D4"
                             Foreground="White"
                             BorderThickness="0"
                             Margin="0,0,8,0"
-                            Cursor="Hand">
+                            Cursor="Hand"
+                            ToolTip="Export all search results to CSV">
                         <Button.Resources>
                             <Style TargetType="Border">
                                 <Setter Property="CornerRadius" Value="6"/>
@@ -1803,10 +1940,7 @@ function ConvertTo-SafeDateTime {
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="Background" Value="#B91C1C"/>
-                                                </Trigger>
-                                                <Trigger Property="IsEnabled" Value="False">
-                                                    <Setter Property="Background" Value="#FCA5A5"/>
+                                                    <Setter Property="Background" Value="#106EBE"/>
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -1815,48 +1949,10 @@ function ConvertTo-SafeDateTime {
                             </Style>
                         </Button.Style>
                     </Button>
-                    
-                    <!-- Export Button -->
-                    <Button x:Name="ExportSearchResultsButton"
-                            Content="Export Results"
-                            Grid.Column="1"
-                            Height="40"
-                            MinWidth="140"
-                            Padding="20,0"
-                            Background="#0078D4"
-                            Foreground="White"
-                            BorderThickness="0"
-                            Margin="0,0,8,0"
-                            Cursor="Hand">
-                        <Button.Resources>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="6"/>
-                            </Style>
-                        </Button.Resources>
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}"
-                                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                                    CornerRadius="6">
-                                                <ContentPresenter HorizontalAlignment="Center"
-                                                                VerticalAlignment="Center"
-                                                                Margin="{TemplateBinding Padding}"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                    
-                    <!-- Export Selected Button -->
+
                     <Button x:Name="ExportSelectedButton"
                             Content="Export Selected"
-                            Grid.Column="2"
+                            Grid.Column="1"
                             Height="40"
                             MinWidth="140"
                             Padding="20,0"
@@ -1865,7 +1961,8 @@ function ConvertTo-SafeDateTime {
                             BorderThickness="0"
                             Margin="0,0,8,0"
                             Cursor="Hand"
-                            IsEnabled="False">
+                            IsEnabled="False"
+                            ToolTip="Export only selected devices to CSV">
                         <Button.Resources>
                             <Style TargetType="Border">
                                 <Setter Property="CornerRadius" Value="6"/>
@@ -1898,6 +1995,61 @@ function ConvertTo-SafeDateTime {
                             </Style>
                         </Button.Style>
                     </Button>
+
+                    <!-- Offboard Panel (Right, conditional) -->
+                    <StackPanel x:Name="OffboardPanel"
+                                Grid.Column="3"
+                                Orientation="Horizontal"
+                                Visibility="Collapsed">
+                        <TextBlock x:Name="SelectedDeviceCount"
+                                 Text=""
+                                 FontSize="13"
+                                 Foreground="#DC2626"
+                                 VerticalAlignment="Center"
+                                 Margin="0,0,12,0"/>
+                        <Button x:Name="OffboardButton"
+                                Content="Offboard device(s)"
+                            Height="40"
+                            Padding="20,0"
+                            Background="#DC2626"
+                            Foreground="White"
+                            BorderThickness="0"
+                            Margin="0,0,8,0"
+                            Cursor="Hand"
+                            ToolTip="Remove selected devices from Intune, Autopilot, and Entra ID">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </Button.Resources>
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="6">
+                                                <ContentPresenter HorizontalAlignment="Center"
+                                                                VerticalAlignment="Center"
+                                                                Margin="{TemplateBinding Padding}"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="#B91C1C"/>
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Background" Value="#FCA5A5"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    </StackPanel>
                 </Grid>
             </Grid>
 
@@ -1928,78 +2080,104 @@ function ConvertTo-SafeDateTime {
                              x:Name="PlaybooksScrollViewer"
                              Margin="20,0,20,20"
                              VerticalScrollBarVisibility="Auto">
-                    <WrapPanel>
-                        <Button x:Name="PlaybookAutopilotNotIntune"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="Autopilot Devices Not in Intune"
-                                Tag="Identify devices registered in Autopilot but missing from Intune management"/>
-                        <Button x:Name="PlaybookIntuneNotAutopilot"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="Intune Devices Not in Autopilot"
-                                Tag="Find managed devices that aren't registered in Autopilot"/>
-                        <Button x:Name="PlaybookCorporateDevices"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="Corporate Device Inventory"
-                                Tag="View all company-owned devices managed in Intune"/>
-                        <Button x:Name="PlaybookPersonalDevices"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="Personal Device Inventory"
-                                Tag="List all BYOD devices enrolled in Intune"/>
-                        <Button x:Name="PlaybookStaleDevices"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="Stale Device Report"
-                                Tag="Identify devices that haven't checked in recently"/>
-                        <Button x:Name="PlaybookSpecificOS"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="OS-Specific Device List"
-                                Tag="Filter devices by operating system version"/>
-                        <Button x:Name="PlaybookNotLatestOS"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="Outdated OS Report"
-                                Tag="Find devices running older operating system versions"/>
-                        <Button x:Name="PlaybookEOLOS"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="End-of-Life OS Report"
-                                Tag="Identify devices running unsupported OS versions"/>
-                        <Button x:Name="PlaybookBitLocker"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="BitLocker Key Report"
-                                Tag="View BitLocker recovery keys for Windows devices"/>
-                        <Button x:Name="PlaybookFileVault"
-                                Style="{StaticResource PlaybookButtonStyle}"
-                                Width="380"
-                                Height="120"
-                                Margin="0,0,15,15"
-                                Content="FileVault Key Report"
-                                Tag="View FileVault recovery keys for macOS devices"/>
-                    </WrapPanel>
+                    <StackPanel>
+                        <!-- Device Compliance -->
+                        <TextBlock Text="Device Compliance"
+                                 FontSize="18"
+                                 FontWeight="SemiBold"
+                                 Foreground="#323130"
+                                 Margin="0,0,0,10"/>
+                        <WrapPanel Margin="0,0,0,20">
+                            <Button x:Name="PlaybookAutopilotNotIntune"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="Autopilot Devices Not in Intune"
+                                    Tag="Identify devices registered in Autopilot but missing from Intune management"/>
+                            <Button x:Name="PlaybookIntuneNotAutopilot"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="Intune Devices Not in Autopilot"
+                                    Tag="Find managed devices that aren't registered in Autopilot"/>
+                        </WrapPanel>
+
+                        <!-- Inventory Reports -->
+                        <TextBlock Text="Inventory Reports"
+                                 FontSize="18"
+                                 FontWeight="SemiBold"
+                                 Foreground="#323130"
+                                 Margin="0,0,0,10"/>
+                        <WrapPanel Margin="0,0,0,20">
+                            <Button x:Name="PlaybookCorporateDevices"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="Corporate Device Inventory"
+                                    Tag="View all company-owned devices managed in Intune"/>
+                            <Button x:Name="PlaybookPersonalDevices"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="Personal Device Inventory"
+                                    Tag="List all BYOD devices enrolled in Intune"/>
+                            <Button x:Name="PlaybookSpecificOS"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="OS-Specific Device List"
+                                    Tag="Filter devices by operating system version"/>
+                        </WrapPanel>
+
+                        <!-- Health and Security -->
+                        <TextBlock Text="Health and Security"
+                                 FontSize="18"
+                                 FontWeight="SemiBold"
+                                 Foreground="#323130"
+                                 Margin="0,0,0,10"/>
+                        <WrapPanel Margin="0,0,0,20">
+                            <Button x:Name="PlaybookStaleDevices"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="Stale Device Report"
+                                    Tag="Identify devices that haven't checked in recently"/>
+                            <Button x:Name="PlaybookNotLatestOS"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="Outdated OS Report"
+                                    Tag="Find devices running older operating system versions"/>
+                            <Button x:Name="PlaybookEOLOS"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="End-of-Life OS Report"
+                                    Tag="Identify devices running unsupported OS versions"/>
+                            <Button x:Name="PlaybookBitLocker"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="BitLocker Key Report"
+                                    Tag="View BitLocker recovery keys for Windows devices"/>
+                            <Button x:Name="PlaybookFileVault"
+                                    Style="{StaticResource PlaybookButtonStyle}"
+                                    MinWidth="300" MaxWidth="450"
+                                    Height="120"
+                                    Margin="0,0,15,15"
+                                    Content="FileVault Key Report"
+                                    Tag="View FileVault recovery keys for macOS devices"/>
+                        </WrapPanel>
+                    </StackPanel>
                 </ScrollViewer>
 
                 <!-- Playbook Results -->
@@ -2741,11 +2919,11 @@ function ConvertTo-SafeDateTime {
                             <TextBlock Text="• Serial numbers (e.g., 1234567890)" 
                                       Margin="16,0,0,8"
                                       Foreground="#4A5568"/>
-                            <Border Background="White" 
-                                    BorderBrush="#CBD5E0" 
-                                    BorderThickness="1" 
-                                    CornerRadius="4" 
-                                    Padding="12" 
+                            <Border Background="White"
+                                    BorderBrush="#CBD5E0"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="12"
                                     Margin="0,8,0,8">
                                 <TextBlock FontFamily="Consolas" 
                                           FontSize="12"
@@ -3812,7 +3990,7 @@ function Invoke-DeviceSearch {
 
         # Pre-fetch Autopilot devices once for devicename search (API doesn't support displayName filtering)
         $allAutopilotDevices = $null
-        if ($SearchOption -eq "Devicename") {
+        if ($SearchOption -eq "Device Name") {
             try {
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities"
                 $allAutopilotDevices = Get-GraphPagedResults -Uri $uri
@@ -3832,7 +4010,7 @@ function Invoke-DeviceSearch {
                 continue
             }
 
-            if ($SearchOption -eq "Devicename") {
+            if ($SearchOption -eq "Device Name") {
                 # Batch Entra + Intune queries together
                 $batchRequests = @(
                     @{ id = "entra"; method = "GET"; url = "/devices?`$filter=displayName eq '$SearchText'&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds" }
@@ -3960,7 +4138,7 @@ function Invoke-DeviceSearch {
                     }
                 }
             }
-            elseif ($SearchOption -eq "Serialnumber") {
+            elseif ($SearchOption -eq "Serial Number") {
                 # Batch Intune + Autopilot queries together
                 $batchRequests = @(
                     @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=serialNumber eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
@@ -4219,23 +4397,24 @@ function Invoke-DeviceSearch {
             $script:AllSearchResults = $searchResults
             $SearchResultsDataGrid.ItemsSource = $searchResults
             $script:LastCheckedIndex = -1
-            # Show filter row when results are available
-            $FilterRow.Visibility = 'Visible'
+            $ResultCountText.Text = "$($searchResults.Count) device(s) found"
         }
         else {
             $script:AllSearchResults = $null
             $SearchResultsDataGrid.ItemsSource = $null
             $FilterRow.Visibility = 'Collapsed'
+            $ResultCountText.Text = ""
             [System.Windows.MessageBox]::Show("No devices found matching the search criteria.")
         }
 
         # Ensure Offboard button and Export Selected button are disabled until selection
         $OffboardButton.IsEnabled = $false
         $ExportSelectedButton.IsEnabled = $false
+        $OffboardPanel.Visibility = 'Collapsed'
     }
     catch {
         Write-Log "Error occurred during search operation. Exception: $_"
-        [System.Windows.MessageBox]::Show("Error in search operation. Please ensure the Serialnumber or Devicename is valid.")
+        [System.Windows.MessageBox]::Show("Error in search operation. Please ensure the Serial Number or Device Name is valid.")
     }
 }
 
@@ -4258,6 +4437,13 @@ $FilterOS = $Window.FindName('FilterOS')
 $FilterPrimaryUser = $Window.FindName('FilterPrimaryUser')
 $FilterCompliance = $Window.FindName('FilterCompliance')
 $SearchResultsDataGrid = $Window.FindName('SearchResultsDataGrid')
+$ConnectionStatusDot = $Window.FindName('ConnectionStatusDot')
+$SearchPlaceholder = $Window.FindName('SearchPlaceholder')
+$ResultCountText = $Window.FindName('ResultCountText')
+$FilterToggleButton = $Window.FindName('FilterToggleButton')
+$ClearSearchButton = $Window.FindName('ClearSearchButton')
+$OffboardPanel = $Window.FindName('OffboardPanel')
+$SelectedDeviceCount = $Window.FindName('SelectedDeviceCount')
 
 # Grid filter function
 function Update-DeviceFilter {
@@ -4283,6 +4469,53 @@ $FilterSerialNumber.Add_TextChanged({ Update-DeviceFilter })
 $FilterOS.Add_TextChanged({ Update-DeviceFilter })
 $FilterPrimaryUser.Add_TextChanged({ Update-DeviceFilter })
 $FilterCompliance.Add_TextChanged({ Update-DeviceFilter })
+
+# Search placeholder visibility
+$SearchInputText.Add_GotFocus({ $SearchPlaceholder.Visibility = 'Collapsed' })
+$SearchInputText.Add_LostFocus({
+        if ([string]::IsNullOrEmpty($SearchInputText.Text)) {
+            $SearchPlaceholder.Visibility = 'Visible'
+        }
+    })
+$SearchInputText.Add_TextChanged({
+        if ([string]::IsNullOrEmpty($SearchInputText.Text)) {
+            $SearchPlaceholder.Visibility = 'Visible'
+        } else {
+            $SearchPlaceholder.Visibility = 'Collapsed'
+        }
+    })
+
+# Filter Toggle button
+$FilterToggleButton.Add_Click({
+        if ($FilterRow.Visibility -eq 'Visible') {
+            $FilterRow.Visibility = 'Collapsed'
+            $FilterToggleButton.Content = 'Filter'
+        } else {
+            $FilterRow.Visibility = 'Visible'
+            $FilterToggleButton.Content = 'Hide Filter'
+        }
+    })
+
+# Clear Search button
+$ClearSearchButton.Add_Click({
+        $SearchInputText.Text = ''
+        $SearchResultsDataGrid.ItemsSource = $null
+        $script:AllSearchResults = $null
+        $FilterRow.Visibility = 'Collapsed'
+        $FilterToggleButton.Content = 'Filter'
+        $FilterDeviceName.Text = ''
+        $FilterSerialNumber.Text = ''
+        $FilterOS.Text = ''
+        $FilterPrimaryUser.Text = ''
+        $FilterCompliance.Text = ''
+        $ResultCountText.Text = ''
+        $OffboardPanel.Visibility = 'Collapsed'
+        $OffboardButton.IsEnabled = $false
+        $ExportSelectedButton.IsEnabled = $false
+        $Window.FindName('intune_status').Text = 'Intune'
+        $Window.FindName('autopilot_status').Text = 'Autopilot'
+        $Window.FindName('aad_status').Text = 'Entra ID'
+    })
 
 # Shift-click range selection
 $script:LastCheckedIndex = -1
@@ -4343,8 +4576,8 @@ $SearchInputText.Add_KeyDown({
     })
     
 $Window.Add_Loaded({
-        $Dropdown.Items.Add("Devicename")
-        $Dropdown.Items.Add("Serialnumber")
+        $Dropdown.Items.Add("Device Name")
+        $Dropdown.Items.Add("Serial Number")
         $Dropdown.Items.Add("Device ID")
         $Dropdown.Items.Add("Contains (partial match)")
         $Dropdown.SelectedIndex = 0
@@ -4367,6 +4600,9 @@ $Window.Add_Loaded({
                 $MenuDashboard.IsEnabled = $false
                 $MenuDeviceManagement.IsEnabled = $false
                 $MenuPlaybooks.IsEnabled = $false
+                $HomeNavDashboard.IsEnabled = $false
+                $HomeNavDeviceMgmt.IsEnabled = $false
+                $HomeNavPlaybooks.IsEnabled = $false
                 
                 # Force Home menu selection
                 $MenuHome.IsChecked = $true
@@ -4383,11 +4619,16 @@ $Window.Add_Loaded({
                 $AuthenticateButton.IsEnabled = $false
                 $Disconnect.IsEnabled = $true
                 $PrerequisitesButton.IsEnabled = $true
-                
+                $ConnectionStatusDot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#48BB78')
+                $ConnectionStatusDot.ToolTip = "Connected"
+
                 # Enable navigation menus
                 $MenuDashboard.IsEnabled = $true
                 $MenuDeviceManagement.IsEnabled = $true
                 $MenuPlaybooks.IsEnabled = $true
+                $HomeNavDashboard.IsEnabled = $true
+                $HomeNavDeviceMgmt.IsEnabled = $true
+                $HomeNavPlaybooks.IsEnabled = $true
                 
                 # Get tenant details for existing connection
                 try {
@@ -4463,6 +4704,8 @@ $Disconnect.Add_Click({
             $AuthenticateButton.Content = "Connect to MS Graph"
             $AuthenticateButton.IsEnabled = $true
             $PrerequisitesButton.IsEnabled = $true
+            $ConnectionStatusDot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FC8181')
+            $ConnectionStatusDot.ToolTip = "Disconnected"
             
             # Hide tenant info
             $Window.FindName('TenantInfoSection').Visibility = 'Collapsed'
@@ -4537,11 +4780,16 @@ $AuthenticateButton.Add_Click({
                 $AuthenticateButton.IsEnabled = $false
                 $Disconnect.Content = "Disconnect"
                 $Disconnect.IsEnabled = $true
+                $ConnectionStatusDot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#48BB78')
+                $ConnectionStatusDot.ToolTip = "Connected"
 
                 # Enable navigation menus
                 $MenuDashboard.IsEnabled = $true
                 $MenuDeviceManagement.IsEnabled = $true
                 $MenuPlaybooks.IsEnabled = $true
+                $HomeNavDashboard.IsEnabled = $true
+                $HomeNavDeviceMgmt.IsEnabled = $true
+                $HomeNavPlaybooks.IsEnabled = $true
             }
             else {
                 # Reset button state on failed connection
@@ -4550,11 +4798,16 @@ $AuthenticateButton.Add_Click({
                 $AuthenticateButton.IsEnabled = $true
                 $Disconnect.Content = "Disconnected"
                 $Disconnect.IsEnabled = $false
-                
+                $ConnectionStatusDot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FC8181')
+                $ConnectionStatusDot.ToolTip = "Disconnected"
+
                 # Disable navigation menus
                 $MenuDashboard.IsEnabled = $false
                 $MenuDeviceManagement.IsEnabled = $false
                 $MenuPlaybooks.IsEnabled = $false
+                $HomeNavDashboard.IsEnabled = $false
+                $HomeNavDeviceMgmt.IsEnabled = $false
+                $HomeNavPlaybooks.IsEnabled = $false
                 
                 # Hide tenant info
                 $Window.FindName('TenantInfoSection').Visibility = 'Collapsed'
@@ -4617,7 +4870,7 @@ $SearchButton.Add_Click({
         }
         catch {
             Write-Log "Error occurred during search operation. Exception: $_"
-            [System.Windows.MessageBox]::Show("Error in search operation. Please ensure the Serialnumber or Devicename is valid.")
+            [System.Windows.MessageBox]::Show("Error in search operation. Please ensure the Serial Number or Device Name is valid.")
         }
     })
     
@@ -4718,28 +4971,34 @@ $OffboardButton.Add_Click({
 
         # Show confirmation modal
         [xml]$confirmationModalXaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Confirm Device Offboarding" Height="750" Width="700" WindowStartupLocation="CenterScreen" Background="#F8F9FA">
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Confirm Device Offboarding" Height="800" Width="700" WindowStartupLocation="CenterScreen" Background="#F8F9FA">
     <Border Background="White" CornerRadius="8" Margin="16">
         <DockPanel Margin="24">
             <!-- Header -->
-            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,24">
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
                 <TextBlock Text="Confirm Device Offboarding" FontSize="24" FontWeight="SemiBold" Foreground="#1A202C"/>
                 <TextBlock Text="Select the services you want to remove the device(s) from:" Foreground="#4A5568" FontSize="14" Margin="0,8,0,0"/>
             </StackPanel>
 
-            <!-- Action Buttons -->
-            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
-                <Button x:Name="CancelButton" Content="Cancel" Width="120" Height="40" Background="#F0F0F0" Foreground="#2D3748" BorderThickness="0" Margin="0,0,12,0"/>
-                <Button x:Name="ConfirmButton" Content="Confirm Offboarding" Width="160" Height="40" Background="#DC2626" Foreground="White" BorderThickness="0"/>
-            </StackPanel>
-
-            <!-- Warning Message -->
-            <Border DockPanel.Dock="Bottom" Background="#FEF2F2" BorderBrush="#FEE2E2" BorderThickness="1" CornerRadius="6" Padding="16" Margin="0,16,0,0">
+            <!-- Warning Message (Top, always visible) -->
+            <Border DockPanel.Dock="Top" Background="#FEF2F2" BorderBrush="#FEE2E2" BorderThickness="1" CornerRadius="6" Padding="16" Margin="0,0,0,16">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="M12,2L1,21H23M12,6L19.53,19H4.47M11,10V13H13V10M11,15V17H13V15" Fill="#DC2626" Width="24" Height="24" Stretch="Uniform" Margin="0,0,12,0"/>
                     <TextBlock Text="This action cannot be undone. The device(s) will be permanently removed from the selected services." Foreground="#DC2626" TextWrapping="Wrap" VerticalAlignment="Center" MaxWidth="400"/>
                 </StackPanel>
             </Border>
+
+            <!-- Action Buttons with Type-to-Confirm -->
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+                <StackPanel Margin="0,0,0,12">
+                    <TextBlock Text="Type OFFBOARD to confirm:" FontWeight="SemiBold" FontSize="13" Foreground="#DC2626" Margin="0,0,0,6"/>
+                    <TextBox x:Name="ConfirmationTextBox" Height="36" Padding="12,8" FontSize="14" BorderBrush="#FEE2E2" BorderThickness="1" MaxWidth="300" HorizontalAlignment="Left"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="CancelButton" Content="Cancel" Width="120" Height="40" Background="#F0F0F0" Foreground="#2D3748" BorderThickness="0" Margin="0,0,12,0"/>
+                    <Button x:Name="ConfirmButton" Content="Confirm Offboarding" Width="160" Height="40" Background="#DC2626" Foreground="White" BorderThickness="0" IsEnabled="False"/>
+                </StackPanel>
+            </StackPanel>
 
             <!-- Main Content -->
             <StackPanel>
@@ -4774,7 +5033,7 @@ $OffboardButton.Add_Click({
                             <ItemsControl x:Name="DevicePreviewList">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,8">
+                                        <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
                                             <StackPanel>
                                                 <TextBlock FontWeight="SemiBold" Margin="0,0,0,4">
                                                     <Run Text="{Binding DeviceName, Mode=OneWay}"/>
@@ -4869,6 +5128,16 @@ $OffboardButton.Add_Click({
         $devicePreviewList = $confirmationWindow.FindName('DevicePreviewList')
         $preActionCombo = $confirmationWindow.FindName('PreActionComboBox')
         $coMgmtBanner = $confirmationWindow.FindName('CoMgmtBanner')
+        $confirmationTextBox = $confirmationWindow.FindName('ConfirmationTextBox')
+
+        # Wire type-to-confirm: enable ConfirmButton only when user types "OFFBOARD"
+        $confirmationTextBox.Add_TextChanged({
+                if ($confirmationTextBox.Text -eq 'OFFBOARD') {
+                    $confirmButton.IsEnabled = $true
+                } else {
+                    $confirmButton.IsEnabled = $false
+                }
+            })
 
         # Check for co-managed devices and show warning banner
         $hasCoManaged = $selectedDevices | Where-Object { $_.ManagementAgent -and $_.ManagementAgent -like '*configurationManager*' }
@@ -5617,7 +5886,7 @@ function Show-DeviceGroupMembership {
                 <ItemsControl x:Name="GroupList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Background="#F7FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,0,8">
+                            <Border Background="#F7FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,8">
                                 <StackPanel>
                                     <TextBlock Text="{Binding Name}" FontWeight="Medium" FontSize="13"/>
                                     <TextBlock Text="{Binding Type}" FontSize="11" Foreground="#718096"/>
@@ -6535,6 +6804,23 @@ $PlaybooksPage = $Window.FindName('PlaybooksPage')
 $PlaybookResultsGrid = $Window.FindName('PlaybookResultsGrid')
 $PlaybookResultsDataGrid = $Window.FindName('PlaybookResultsDataGrid')
 
+# Home page buttons
+$HomeConnectButton = $Window.FindName('HomeConnectButton')
+$HomeNavDashboard = $Window.FindName('HomeNavDashboard')
+$HomeNavDeviceMgmt = $Window.FindName('HomeNavDeviceMgmt')
+$HomeNavPlaybooks = $Window.FindName('HomeNavPlaybooks')
+
+# Wire HomeConnectButton to same handler as AuthenticateButton
+$HomeConnectButton.Add_Click({
+        $AuthenticateButton.RaiseEvent(
+            (New-Object System.Windows.RoutedEventArgs(
+                [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
+    })
+
+# Wire quick nav buttons to sidebar menu
+$HomeNavDashboard.Add_Click({ $MenuDashboard.IsChecked = $true })
+$HomeNavDeviceMgmt.Add_Click({ $MenuDeviceManagement.IsChecked = $true })
+$HomeNavPlaybooks.Add_Click({ $MenuPlaybooks.IsChecked = $true })
 
 # Set initial page visibility
 $Window.Add_Loaded({
@@ -6588,6 +6874,15 @@ $MenuPlaybooks.Add_Checked({
 # Wire platform filter ComboBox
 $DashboardPlatformFilter = $Window.FindName('DashboardPlatformFilter')
 $DashboardPlatformFilter.Add_SelectionChanged({
+        if (-not $AuthenticateButton.IsEnabled) {
+            $selected = $DashboardPlatformFilter.SelectedItem.Content
+            Update-DashboardStatistics -Platform $selected
+        }
+    })
+
+# Wire Dashboard Refresh button
+$DashboardRefreshButton = $Window.FindName('DashboardRefreshButton')
+$DashboardRefreshButton.Add_Click({
         if (-not $AuthenticateButton.IsEnabled) {
             $selected = $DashboardPlatformFilter.SelectedItem.Content
             Update-DashboardStatistics -Platform $selected
@@ -6739,11 +7034,18 @@ function Update-DashboardStatistics {
             $Window.FindName('StaleDevices90Count').Text = $stale90
             $Window.FindName('StaleDevices180Count').Text = $stale180
 
+            # Update stale device progress bars
+            $totalDevices = $intuneCount
+            if ($totalDevices -gt 0) {
+                $Window.FindName('StaleDevices30Progress').Value = [Math]::Round(($stale30 / $totalDevices) * 100)
+                $Window.FindName('StaleDevices90Progress').Value = [Math]::Round(($stale90 / $totalDevices) * 100)
+                $Window.FindName('StaleDevices180Progress').Value = [Math]::Round(($stale180 / $totalDevices) * 100)
+            }
+
             # Update personal/corporate counts and progress bars
             $Window.FindName('PersonalDevicesCount').Text = $personalDevices
             $Window.FindName('CorporateDevicesCount').Text = $corporateDevices
 
-            $totalDevices = $intuneCount
             if ($totalDevices -gt 0) {
                 $personalProgress = [Math]::Round(($personalDevices / $totalDevices) * 100)
                 $corporateProgress = [Math]::Round(($corporateDevices / $totalDevices) * 100)
@@ -6822,9 +7124,17 @@ function Update-DashboardStatistics {
             $Window.FindName('StaleDevices90Count').Text = $stale90
             $Window.FindName('StaleDevices180Count').Text = $stale180
 
+            $totalDevices = if ($intuneDevices) { $intuneDevices.Count } else { 0 }
+
+            # Update stale device progress bars
+            if ($totalDevices -gt 0) {
+                $Window.FindName('StaleDevices30Progress').Value = [Math]::Round(($stale30 / $totalDevices) * 100)
+                $Window.FindName('StaleDevices90Progress').Value = [Math]::Round(($stale90 / $totalDevices) * 100)
+                $Window.FindName('StaleDevices180Progress').Value = [Math]::Round(($stale180 / $totalDevices) * 100)
+            }
+
             $personalDevices = ($intuneDevices | Where-Object { $_.managedDeviceOwnerType -eq 'personal' }).Count
             $corporateDevices = ($intuneDevices | Where-Object { $_.managedDeviceOwnerType -eq 'company' }).Count
-            $totalDevices = if ($intuneDevices) { $intuneDevices.Count } else { 0 }
 
             $Window.FindName('PersonalDevicesCount').Text = $personalDevices
             $Window.FindName('CorporateDevicesCount').Text = $corporateDevices
@@ -7056,6 +7366,13 @@ $SelectAllCheckBox.Add_Click({
             # Update button states
             $OffboardButton.IsEnabled = $allChecked
             $ExportSelectedButton.IsEnabled = $allChecked
+            if ($allChecked) {
+                $count = @($SearchResultsDataGrid.ItemsSource).Count
+                $SelectedDeviceCount.Text = "$count device(s) selected"
+                $OffboardPanel.Visibility = 'Visible'
+            } else {
+                $OffboardPanel.Visibility = 'Collapsed'
+            }
         }
     })
 
@@ -7092,6 +7409,13 @@ $SearchResultsDataGrid.Add_SelectionChanged({
         $hasSelection = ($null -ne $selectedDevices -and $selectedDevices.Count -gt 0)
         $OffboardButton.IsEnabled = $hasSelection
         $ExportSelectedButton.IsEnabled = $hasSelection
+        if ($hasSelection) {
+            $count = @($selectedDevices).Count
+            $SelectedDeviceCount.Text = "$count device(s) selected"
+            $OffboardPanel.Visibility = 'Visible'
+        } else {
+            $OffboardPanel.Visibility = 'Collapsed'
+        }
     })
 
 # Add handler for checkbox selection changes
@@ -7108,12 +7432,19 @@ $SearchResultsDataGrid.Add_LoadingRow({
                             $allSelected = -not ($SearchResultsDataGrid.ItemsSource | Where-Object { -not $_.IsSelected })
                             $SelectAllCheckBox.IsChecked = $allSelected
                         }
-                        
-                        # Update Offboard button state
+
+                        # Update Offboard button state and panel visibility
                         $selectedDevices = $SearchResultsDataGrid.ItemsSource | Where-Object { $_.IsSelected }
                         $hasSelection = ($null -ne $selectedDevices -and $selectedDevices.Count -gt 0)
                         $OffboardButton.IsEnabled = $hasSelection
                         $ExportSelectedButton.IsEnabled = $hasSelection
+                        if ($hasSelection) {
+                            $count = @($selectedDevices).Count
+                            $SelectedDeviceCount.Text = "$count device(s) selected"
+                            $OffboardPanel.Visibility = 'Visible'
+                        } else {
+                            $OffboardPanel.Visibility = 'Collapsed'
+                        }
                     }
                 })
         }
