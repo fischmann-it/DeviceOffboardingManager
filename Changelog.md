@@ -29,7 +29,7 @@
 - **Platform Filtering on Dashboard** (Issue #40): ComboBox to filter all dashboard statistics by OS platform
 - **Grid Filtering and Shift-Click Range Selection** (Issue #33): Filter TextBoxes above the DataGrid for live column filtering, shift-click on checkboxes to toggle device ranges
 - **HTML Offboarding Report Generation**: Professional styled HTML reports with per-device service status and summary statistics, accessible via export buttons in summary and dashboard dialogs
-- **Defender for Endpoint**: Now shown as a supported service on the homepage (no longer marked as "Soon")
+- **Defender for Endpoint (settings-gated)** (Issue #11): Optional Defender for Endpoint offboarding, disabled by default. Enable it from the Prerequisites dialog; only then does Defender appear as an offboarding target and request a separate Defender API token. Supports app-only token acquisition (client secret and certificate auth) plus delegated silent/interactive fallback across both Defender API resource endpoints. Requires `WindowsDefenderATP` permissions (`Machine.ReadWrite.All`, `Machine.Offboard`) and the optional MSAL.PS module.
 
 ### New Playbooks
 - **Playbook 6: OS-Specific Devices** -- Filter and list managed devices by operating system

@@ -3666,6 +3666,75 @@ LAPTOP-XYZ789
     return $null
 }
 
+function Get-DeviceOffboardingSettings {
+    $defaults = [ordered]@{
+        DefenderIntegrationEnabled = $false
+    }
+
+    if (-not $script:ConfigDirectory) {
+        return [pscustomobject]$defaults
+    }
+
+    $settingsPath = [System.IO.Path]::Combine($script:ConfigDirectory, "settings.json")
+    if (-not (Test-Path $settingsPath)) {
+        return [pscustomobject]$defaults
+    }
+
+    try {
+        $savedSettings = Get-Content -Path $settingsPath -Raw | ConvertFrom-Json
+        foreach ($key in @($defaults.Keys)) {
+            if ($savedSettings.PSObject.Properties.Name -contains $key) {
+                $defaults[$key] = $savedSettings.$key
+            }
+        }
+    }
+    catch {
+        Write-Log "Error reading settings file: $_" -Severity "WARN"
+    }
+
+    return [pscustomobject]$defaults
+}
+
+function Save-DeviceOffboardingSettings {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Settings
+    )
+
+    if (-not $script:ConfigDirectory) {
+        throw "Config directory is not initialized."
+    }
+
+    if (-not (Test-Path $script:ConfigDirectory)) {
+        New-Item -Path $script:ConfigDirectory -ItemType Directory -Force | Out-Null
+    }
+
+    $settingsPath = [System.IO.Path]::Combine($script:ConfigDirectory, "settings.json")
+    $Settings | ConvertTo-Json | Set-Content -Path $settingsPath -Force
+    $script:DeviceOffboardingSettings = $Settings
+}
+
+function Get-DefenderIntegrationEnabled {
+    if (-not $script:DeviceOffboardingSettings) {
+        $script:DeviceOffboardingSettings = Get-DeviceOffboardingSettings
+    }
+
+    return [bool]$script:DeviceOffboardingSettings.DefenderIntegrationEnabled
+}
+
+function Set-DefenderIntegrationEnabled {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Enabled
+    )
+
+    $settings = Get-DeviceOffboardingSettings
+    $settings.DefenderIntegrationEnabled = $Enabled
+    Save-DeviceOffboardingSettings -Settings $settings
+
+    Write-Log "Defender for Endpoint integration setting changed to: $Enabled" -Severity "AUDIT"
+}
+
 function Connect-ToGraph {
     param (
         [Parameter(Mandatory = $true)]
@@ -3674,7 +3743,8 @@ function Connect-ToGraph {
 
     try {
         Write-Log "Attempting to connect to Microsoft Graph using $($AuthDetails.Method) authentication..."
-        
+        $script:CurrentAuthDetails = $null
+
         # Get required permissions
         $permissionsList = ($script:requiredPermissions | ForEach-Object { $_.Permission })
 
@@ -3682,6 +3752,9 @@ function Connect-ToGraph {
         switch ($AuthDetails.Method) {
             'Interactive' {
                 $connectionResult = Connect-MgGraph -Scopes $permissionsList -NoWelcome -ErrorAction Stop
+                $script:CurrentAuthDetails = @{
+                    Method = 'Interactive'
+                }
             }
             'Certificate' {
                 # Validate certificate credentials before attempting connection
@@ -3699,6 +3772,12 @@ function Connect-ToGraph {
                 Disconnect-MgGraph -ErrorAction SilentlyContinue
                 
                 $connectionResult = Connect-MgGraph -ClientId $AuthDetails.AppId -TenantId $AuthDetails.TenantId -CertificateThumbprint $AuthDetails.Thumbprint -NoWelcome -ErrorAction Stop
+                $script:CurrentAuthDetails = @{
+                    Method     = 'Certificate'
+                    AppId      = $AuthDetails.AppId
+                    TenantId   = $AuthDetails.TenantId
+                    Thumbprint = $AuthDetails.Thumbprint
+                }
             }
             'Secret' {
                 # Validate client secret credentials before attempting connection
@@ -3716,6 +3795,12 @@ function Connect-ToGraph {
                 $ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $AuthDetails.AppId, $SecuredPasswordPassword
                 
                 $connectionResult = Connect-MgGraph -TenantId $AuthDetails.TenantId -ClientSecretCredential $ClientSecretCredential -NoWelcome -ErrorAction Stop
+                $script:CurrentAuthDetails = @{
+                    Method             = 'Secret'
+                    AppId              = $AuthDetails.AppId
+                    TenantId           = $AuthDetails.TenantId
+                    SecretSecureString = $SecuredPasswordPassword
+                }
 
                 # Clear sensitive credentials from memory
                 $SecuredPasswordPassword = $null
@@ -3823,6 +3908,7 @@ $script:LogDirectory = [System.IO.Path]::Combine([Environment]::GetFolderPath("D
 if (-not (Test-Path $script:LogDirectory)) { New-Item -Path $script:LogDirectory -ItemType Directory -Force | Out-Null }
 $script:LogFilePath = [System.IO.Path]::Combine($script:LogDirectory, "DOM_$(Get-Date -Format 'yyyyMMdd_HHmmss').log")
 $script:AdminUPN = $null
+$script:CurrentAuthDetails = $null
 
 # Config directory for saved authentication settings
 $script:ConfigDirectory = [System.IO.Path]::Combine(
@@ -3852,6 +3938,8 @@ function Write-Log {
         Write-Host "[$Severity] $Message" -ForegroundColor $color
     }
 }
+
+$script:DeviceOffboardingSettings = Get-DeviceOffboardingSettings
 
 function Export-DeviceListToCSV {
     param(
@@ -4928,7 +5016,11 @@ $Disconnect.Add_Click({
             
             # Disconnect from Graph
             Disconnect-MgGraph -ErrorAction Stop
-            
+            if ($script:CurrentAuthDetails -and $script:CurrentAuthDetails.SecretSecureString) {
+                $script:CurrentAuthDetails.SecretSecureString.Dispose()
+            }
+            $script:CurrentAuthDetails = $null
+
             # Reset UI state
             $Disconnect.Content = "Disconnected"
             $Disconnect.IsEnabled = $false
@@ -4970,6 +5062,10 @@ $Disconnect.Add_Click({
             Write-Log "Successfully disconnected from MS Graph"
         }
         catch {
+            if ($script:CurrentAuthDetails -and $script:CurrentAuthDetails.SecretSecureString) {
+                $script:CurrentAuthDetails.SecretSecureString.Dispose()
+            }
+            $script:CurrentAuthDetails = $null
             Write-Log "Error occurred while attempting to disconnect from MS Graph: $_"
             Show-Toast -Message "Error disconnecting from Microsoft Graph: $_" -Type "error" -DurationSeconds 6
         }
@@ -5030,6 +5126,10 @@ $AuthenticateButton.Add_Click({
             else {
                 # Reset button state on failed connection
                 Write-Log "Authentication Failed"
+                if ($script:CurrentAuthDetails -and $script:CurrentAuthDetails.SecretSecureString) {
+                    $script:CurrentAuthDetails.SecretSecureString.Dispose()
+                }
+                $script:CurrentAuthDetails = $null
                 $AuthenticateButton.Content = "Connect to MS Graph"
                 $AuthenticateButton.IsEnabled = $true
                 $Disconnect.Content = "Disconnected"
@@ -5057,6 +5157,10 @@ $AuthenticateButton.Add_Click({
         }
         catch {
             Write-Log "Error occurred during authentication. Exception: $_"
+            if ($script:CurrentAuthDetails -and $script:CurrentAuthDetails.SecretSecureString) {
+                $script:CurrentAuthDetails.SecretSecureString.Dispose()
+            }
+            $script:CurrentAuthDetails = $null
             # Reset button state on error
             $AuthenticateButton.Content = "Connect to MS Graph"
             $AuthenticateButton.IsEnabled = $true
@@ -5573,9 +5677,12 @@ $OffboardButton.Add_Click({
             @{ Name = "Entra ID"; Icon = "M12,5.5A3.5,3.5 0 0,1 15.5,9A3.5,3.5 0 0,1 12,12.5A3.5,3.5 0 0,1 8.5,9A3.5,3.5 0 0,1 12,5.5M5,8C5.56,8 6.08,8.15 6.53,8.42C6.38,9.85 6.8,11.27 7.66,12.38C7.16,13.34 6.16,14 5,14A3,3 0 0,1 2,11A3,3 0 0,1 5,8M19,8A3,3 0 0,1 22,11A3,3 0 0,1 19,14C17.84,14 16.84,13.34 16.34,12.38C17.2,11.27 17.62,9.85 17.47,8.42C17.92,8.15 18.44,8 19,8M5.5,18.25C5.5,16.18 8.41,14.5 12,14.5C15.59,14.5 18.5,16.18 18.5,18.25V20H5.5V18.25M0,20V18.5C0,17.11 1.89,15.94 4.45,15.6C3.86,16.28 3.5,17.22 3.5,18.25V20H0M24,20H20.5V18.25C20.5,17.22 20.14,16.28 19.55,15.6C22.11,15.94 24,17.11 24,18.5V20Z"; DefaultChecked = $true },
             @{ Name = "Disable in Entra ID"; Icon = "M12,5.5A3.5,3.5 0 0,1 15.5,9A3.5,3.5 0 0,1 12,12.5A3.5,3.5 0 0,1 8.5,9A3.5,3.5 0 0,1 12,5.5M5,8C5.56,8 6.08,8.15 6.53,8.42C6.38,9.85 6.8,11.27 7.66,12.38C7.16,13.34 6.16,14 5,14A3,3 0 0,1 2,11A3,3 0 0,1 5,8M19,8A3,3 0 0,1 22,11A3,3 0 0,1 19,14C17.84,14 16.84,13.34 16.34,12.38C17.2,11.27 17.62,9.85 17.47,8.42C17.92,8.15 18.44,8 19,8M5.5,18.25C5.5,16.18 8.41,14.5 12,14.5C15.59,14.5 18.5,16.18 18.5,18.25V20H5.5V18.25M0,20V18.5C0,17.11 1.89,15.94 4.45,15.6C3.86,16.28 3.5,17.22 3.5,18.25V20H0M24,20H20.5V18.25C20.5,17.22 20.14,16.28 19.55,15.6C22.11,15.94 24,17.11 24,18.5V20Z"; DefaultChecked = $false },
             @{ Name = "Intune"; Icon = "M21,14V4H3V14H21M21,2A2,2 0 0,1 23,4V16A2,2 0 0,1 21,18H14L16,21V22H8V21L10,18H3C1.89,18 1,17.1 1,16V4C1,2.89 1.89,2 3,2H21M4,5H20V13H4V5Z"; DefaultChecked = $true },
-            @{ Name = "Autopilot"; Icon = "M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"; DefaultChecked = $true },
-            @{ Name = "Defender for Endpoint"; Icon = "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,3.18L19,6.3V11.22C19,15.54 16.18,19.5 12,20.93C7.82,19.5 5,15.54 5,11.22V6.3L12,3.18Z"; DefaultChecked = $false }
+            @{ Name = "Autopilot"; Icon = "M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z"; DefaultChecked = $true }
         )
+
+        if (Get-DefenderIntegrationEnabled) {
+            $services += @{ Name = "Defender for Endpoint"; Icon = "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,3.18L19,6.3V11.22C19,15.54 16.18,19.5 12,20.93C7.82,19.5 5,15.54 5,11.22V6.3L12,3.18Z"; DefaultChecked = $false }
+        }
         
         # Create hashtable to store checkbox references
         $script:serviceCheckboxes = @{}
@@ -5695,7 +5802,7 @@ $OffboardButton.Add_Click({
             $deleteEntra = (-not $disableEntra) -and $script:serviceCheckboxes["Entra ID"].IsChecked
             $deleteIntune = $script:serviceCheckboxes["Intune"].IsChecked
             $deleteAutopilot = $script:serviceCheckboxes["Autopilot"].IsChecked
-            $offboardMde = $script:serviceCheckboxes.ContainsKey("Defender for Endpoint") -and $script:serviceCheckboxes["Defender for Endpoint"].IsChecked
+            $offboardMde = (Get-DefenderIntegrationEnabled) -and $script:serviceCheckboxes.ContainsKey("Defender for Endpoint") -and $script:serviceCheckboxes["Defender for Endpoint"].IsChecked
 
             # Resolve MDE device IDs if MDE offboarding is selected
             if ($offboardMde) {
@@ -6059,7 +6166,6 @@ $ExportSelectedButton.Add_Click({
 
 function Get-MdeAccessToken {
     try {
-        # Use the existing Graph connection context to get a token for the MDE resource
         $context = Get-MgContext
         if (-not $context) {
             Write-Log "No Graph context available for MDE token acquisition" -Severity "WARN"
@@ -6073,23 +6179,81 @@ function Get-MdeAccessToken {
         }
 
         Import-Module MSAL.PS -ErrorAction Stop
-        $scopes = @("https://api.security.microsoft.com/.default")
+        $resourceScopes = @(
+            "https://api.securitycenter.microsoft.com/.default",
+            "https://api.security.microsoft.com/.default"
+        )
 
-        # Try silent token acquisition first
-        try {
-            $mdeToken = (Get-MsalToken -ClientId $context.ClientId -TenantId $context.TenantId -Scopes $scopes -Silent -ErrorAction Stop).AccessToken
-            return $mdeToken
-        } catch {
-            Write-Log "Silent MDE token acquisition failed, trying interactive: $_" -Severity "WARN"
+        if ($script:CurrentAuthDetails -and $script:CurrentAuthDetails.Method -eq 'Secret') {
+            foreach ($scopes in $resourceScopes) {
+                try {
+                    $mdeToken = (Get-MsalToken `
+                            -ClientId $script:CurrentAuthDetails.AppId `
+                            -TenantId $script:CurrentAuthDetails.TenantId `
+                            -ClientSecret $script:CurrentAuthDetails.SecretSecureString `
+                            -Scopes @($scopes) `
+                            -ErrorAction Stop).AccessToken
+
+                    Write-Log "Acquired app-only Defender for Endpoint token with client secret for resource $scopes"
+                    return $mdeToken
+                } catch {
+                    Write-Log "Client secret Defender token acquisition failed for $scopes`: $_" -Severity "WARN"
+                }
+            }
         }
-        # Fallback: try interactive token acquisition
-        try {
-            $mdeToken = (Get-MsalToken -ClientId $context.ClientId -TenantId $context.TenantId -Scopes $scopes -Interactive -ErrorAction Stop).AccessToken
-            return $mdeToken
-        } catch {
-            Write-Log "Interactive MDE token acquisition failed: $_" -Severity "ERROR"
-            return $null
+
+        if ($script:CurrentAuthDetails -and $script:CurrentAuthDetails.Method -eq 'Certificate') {
+            $thumbprint = ($script:CurrentAuthDetails.Thumbprint -replace '\s', '')
+            $certificate = $null
+            foreach ($certPath in @("Cert:\CurrentUser\My\$thumbprint", "Cert:\LocalMachine\My\$thumbprint")) {
+                $certificate = Get-Item -Path $certPath -ErrorAction SilentlyContinue
+                if ($certificate) {
+                    break
+                }
+            }
+
+            if (-not $certificate) {
+                Write-Log "Could not find certificate with thumbprint $thumbprint for Defender token acquisition." -Severity "WARN"
+            }
+            else {
+                foreach ($scopes in $resourceScopes) {
+                    try {
+                        $mdeToken = (Get-MsalToken `
+                                -ClientId $script:CurrentAuthDetails.AppId `
+                                -TenantId $script:CurrentAuthDetails.TenantId `
+                                -ClientCertificate $certificate `
+                                -Scopes @($scopes) `
+                                -ErrorAction Stop).AccessToken
+
+                        Write-Log "Acquired app-only Defender for Endpoint token with certificate for resource $scopes"
+                        return $mdeToken
+                    } catch {
+                        Write-Log "Certificate Defender token acquisition failed for $scopes`: $_" -Severity "WARN"
+                    }
+                }
+            }
         }
+
+        foreach ($scopes in $resourceScopes) {
+            try {
+                $mdeToken = (Get-MsalToken -ClientId $context.ClientId -TenantId $context.TenantId -Scopes @($scopes) -Silent -ErrorAction Stop).AccessToken
+                Write-Log "Acquired Defender for Endpoint token silently for resource $scopes"
+                return $mdeToken
+            } catch {
+                Write-Log "Silent Defender token acquisition failed for $scopes`: $_" -Severity "WARN"
+            }
+
+            try {
+                $mdeToken = (Get-MsalToken -ClientId $context.ClientId -TenantId $context.TenantId -Scopes @($scopes) -Interactive -ErrorAction Stop).AccessToken
+                Write-Log "Acquired Defender for Endpoint token interactively for resource $scopes"
+                return $mdeToken
+            } catch {
+                Write-Log "Interactive Defender token acquisition failed for $scopes`: $_" -Severity "WARN"
+            }
+        }
+
+        Write-Log "Could not acquire Defender for Endpoint token. Ensure WindowsDefenderATP Machine.ReadWrite.All and Machine.Offboard permissions are consented for app-only auth, or Machine.ReadWrite and Machine.Offboard are consented for delegated auth." -Severity "ERROR"
+        return $null
     } catch {
         Write-Log "Error acquiring MDE access token: $_" -Severity "ERROR"
         return $null
@@ -6397,7 +6561,7 @@ function Show-OffboardingSummary {
     $hasMAA = $false
 
     # Check if MDE was selected
-    $mdeSelected = $script:serviceCheckboxes -and $script:serviceCheckboxes.ContainsKey("Defender for Endpoint") -and $script:serviceCheckboxes["Defender for Endpoint"].IsChecked
+    $mdeSelected = (Get-DefenderIntegrationEnabled) -and $script:serviceCheckboxes -and $script:serviceCheckboxes.ContainsKey("Defender for Endpoint") -and $script:serviceCheckboxes["Defender for Endpoint"].IsChecked
 
     # Process results and create display objects
     $displayResults = @()
@@ -6996,6 +7160,135 @@ function Show-PrerequisitesDialog {
                 )
                 $installButton.IsEnabled = $true
                 $installButton.Content = "Install"
+            }
+        })
+
+    # Optional Defender for Endpoint integration toggle
+    $defenderSettingsItem = New-Object System.Windows.Controls.StackPanel
+    $defenderSettingsItem.Style = $prereqWindow.FindResource("CheckItemStyle")
+    $defenderSettingsItem.Orientation = "Horizontal"
+
+    $defenderToggle = New-Object System.Windows.Controls.CheckBox
+    $defenderToggle.VerticalAlignment = "Center"
+    $defenderToggle.Margin = New-Object System.Windows.Thickness(0, 0, 8, 0)
+    $defenderToggle.IsChecked = Get-DefenderIntegrationEnabled
+
+    $defenderTextPanel = New-Object System.Windows.Controls.StackPanel
+    $defenderTextPanel.Orientation = "Vertical"
+    $defenderTextPanel.Margin = New-Object System.Windows.Thickness(0, 0, 0, 4)
+
+    $defenderTitle = New-Object System.Windows.Controls.TextBlock
+    $defenderTitle.Text = "Enable Defender for Endpoint integration"
+    $defenderTitle.Style = $prereqWindow.FindResource("CheckTextStyle")
+    $defenderTitle.FontWeight = "SemiBold"
+
+    $defenderDescription = New-Object System.Windows.Controls.TextBlock
+    $defenderDescription.Text = "Optional. When enabled, Defender appears as an offboarding target and requests a separate Defender API token only when selected. Requires WindowsDefenderATP permissions: Machine.ReadWrite.All and Machine.Offboard."
+    $defenderDescription.Style = $prereqWindow.FindResource("CheckTextStyle")
+    $defenderDescription.Foreground = "#666666"
+    $defenderDescription.FontSize = 12
+    $defenderDescription.TextWrapping = "Wrap"
+    $defenderDescription.Margin = New-Object System.Windows.Thickness(0, 2, 0, 0)
+
+    $defenderTextPanel.Children.Add($defenderTitle)
+    $defenderTextPanel.Children.Add($defenderDescription)
+    $defenderSettingsItem.Children.Add($defenderToggle)
+    $defenderSettingsItem.Children.Add($defenderTextPanel)
+    $modulePanel.Children.Add($defenderSettingsItem)
+
+    # Optional MSAL.PS module check for Defender token acquisition
+    $msalItem = New-Object System.Windows.Controls.StackPanel
+    $msalItem.Style = $prereqWindow.FindResource("CheckItemStyle")
+    $msalItem.Orientation = "Horizontal"
+
+    $msalCheckbox = New-Object System.Windows.Controls.CheckBox
+    $msalCheckbox.IsEnabled = $false
+    $msalCheckbox.VerticalAlignment = "Center"
+    $msalCheckbox.Margin = New-Object System.Windows.Thickness(0, 0, 8, 0)
+
+    $msalTextPanel = New-Object System.Windows.Controls.StackPanel
+    $msalTextPanel.Orientation = "Vertical"
+    $msalTextPanel.Margin = New-Object System.Windows.Thickness(0, 0, 0, 4)
+
+    $msalText = New-Object System.Windows.Controls.TextBlock
+    $msalText.Text = "MSAL.PS"
+    $msalText.Style = $prereqWindow.FindResource("CheckTextStyle")
+    $msalText.FontWeight = "SemiBold"
+
+    $msalDesc = New-Object System.Windows.Controls.TextBlock
+    $msalDesc.Text = "Optional module used only for Defender for Endpoint token acquisition."
+    $msalDesc.Style = $prereqWindow.FindResource("CheckTextStyle")
+    $msalDesc.Foreground = "#666666"
+    $msalDesc.FontSize = 12
+    $msalDesc.TextWrapping = "Wrap"
+    $msalDesc.Margin = New-Object System.Windows.Thickness(0, 2, 0, 0)
+
+    $msalTextPanel.Children.Add($msalText)
+    $msalTextPanel.Children.Add($msalDesc)
+
+    $installMsalButton = New-Object System.Windows.Controls.Button
+    $installMsalButton.Content = "Install"
+    $installMsalButton.Style = $prereqWindow.FindResource("InstallButtonStyle")
+    $installMsalButton.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
+
+    if (Get-Module -ListAvailable -Name "MSAL.PS") {
+        $msalCheckbox.IsChecked = $true
+        $msalCheckbox.Foreground = "#28A745"
+        $installMsalButton.Visibility = "Collapsed"
+    }
+    else {
+        $msalCheckbox.IsChecked = $false
+        $msalCheckbox.Foreground = "#DC3545"
+        $installMsalButton.Visibility = if (Get-DefenderIntegrationEnabled) { "Visible" } else { "Collapsed" }
+    }
+
+    $msalItem.Children.Add($msalCheckbox)
+    $msalItem.Children.Add($msalTextPanel)
+    $msalItem.Children.Add($installMsalButton)
+    $modulePanel.Children.Add($msalItem)
+
+    $defenderToggle.Add_Checked({
+            Set-DefenderIntegrationEnabled -Enabled $true
+            if (-not (Get-Module -ListAvailable -Name "MSAL.PS")) {
+                $installMsalButton.Visibility = "Visible"
+            }
+        })
+
+    $defenderToggle.Add_Unchecked({
+            Set-DefenderIntegrationEnabled -Enabled $false
+            if (-not (Get-Module -ListAvailable -Name "MSAL.PS")) {
+                $installMsalButton.Visibility = "Collapsed"
+            }
+        })
+
+    $installMsalButton.Add_Click({
+            try {
+                $installMsalButton.IsEnabled = $false
+                $installMsalButton.Content = "Installing..."
+
+                Install-Module "MSAL.PS" -Scope CurrentUser -Force -ErrorAction Stop
+
+                $msalCheckbox.IsChecked = $true
+                $msalCheckbox.Foreground = "#28A745"
+                $installMsalButton.Visibility = "Collapsed"
+
+                [System.Windows.MessageBox]::Show(
+                    "MSAL.PS installed successfully. Please restart the application for changes to take effect.",
+                    "Installation Complete",
+                    [System.Windows.MessageBoxButton]::OK,
+                    [System.Windows.MessageBoxImage]::Information
+                )
+            }
+            catch {
+                Write-Log "Error installing MSAL.PS module: $_"
+                [System.Windows.MessageBox]::Show(
+                    "Failed to install MSAL.PS. Please ensure you have internet connection and necessary permissions.",
+                    "Installation Error",
+                    [System.Windows.MessageBoxButton]::OK,
+                    [System.Windows.MessageBoxImage]::Error
+                )
+                $installMsalButton.IsEnabled = $true
+                $installMsalButton.Content = "Install"
             }
         })
 
