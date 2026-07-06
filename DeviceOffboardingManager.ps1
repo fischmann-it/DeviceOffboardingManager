@@ -4053,6 +4053,19 @@ $deviceRows
     }
 }
 
+function ConvertTo-ODataStringValue {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Value
+    )
+
+    if ($null -eq $Value) {
+        return ""
+    }
+
+    return $Value.Replace("'", "''")
+}
+
 function Invoke-DeviceSearch {
     param(
         [Parameter(Mandatory = $true)]
@@ -4089,11 +4102,13 @@ function Invoke-DeviceSearch {
                 continue
             }
 
+            $escapedSearchText = ConvertTo-ODataStringValue -Value $SearchText
+
             if ($SearchOption -eq "Device Name") {
                 # Batch Entra + Intune queries together
                 $batchRequests = @(
-                    @{ id = "entra"; method = "GET"; url = "/devices?`$filter=displayName eq '$SearchText'&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds" }
-                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=deviceName eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
+                    @{ id = "entra"; method = "GET"; url = "/devices?`$filter=displayName eq '$escapedSearchText'&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds" }
+                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=deviceName eq '$escapedSearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
                 )
                 $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
                 $entraResp = $batchResponses | Where-Object { $_.id -eq "entra" }
@@ -4118,7 +4133,7 @@ function Invoke-DeviceSearch {
                         
                         # If no Autopilot match by displayName and we have Intune device with serial, try serial number
                         if (-not $matchingAutopilotDevice -and $matchingIntuneDevice -and $matchingIntuneDevice.serialNumber) {
-                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($matchingIntuneDevice.serialNumber)')"
+                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$(ConvertTo-ODataStringValue -Value $matchingIntuneDevice.serialNumber)')"
                             $matchingAutopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                         }
 
@@ -4171,7 +4186,7 @@ function Invoke-DeviceSearch {
                         
                         # If no match by displayName and we have serial number, try serial number
                         if (-not $matchingAutopilotDevice -and $IntuneDevice.serialNumber) {
-                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($IntuneDevice.serialNumber)')"
+                            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$(ConvertTo-ODataStringValue -Value $IntuneDevice.serialNumber)')"
                             $matchingAutopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                         }
 
@@ -4218,10 +4233,12 @@ function Invoke-DeviceSearch {
                 }
             }
             elseif ($SearchOption -eq "Serial Number") {
-                # Batch Intune + Autopilot queries together
+                # Batch Intune + Autopilot queries together.
+                # NOTE: Intune managedDevices only supports 'eq' on serialNumber; contains()/startswith()
+                # are silently ignored and return zero results. Autopilot does support contains().
                 $batchRequests = @(
-                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=serialNumber eq '$SearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
-                    @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$SearchText')" }
+                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=serialNumber eq '$escapedSearchText'&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
+                    @{ id = "autopilot"; method = "GET"; url = "/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$escapedSearchText')" }
                 )
                 $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
                 $intuneResp = $batchResponses | Where-Object { $_.id -eq "intune" }
@@ -4234,7 +4251,7 @@ function Invoke-DeviceSearch {
                     if ($IntuneDevices) {
                         foreach ($IntuneDevice in $IntuneDevices) {
                             # Get Entra ID Device
-                            $uri = "https://graph.microsoft.com/beta/devices?`$filter=displayName eq '$($IntuneDevice.deviceName)'&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds"
+                            $uri = "https://graph.microsoft.com/beta/devices?`$filter=displayName eq '$(ConvertTo-ODataStringValue -Value $IntuneDevice.deviceName)'&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds"
                             $AADDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                             
                             # Get Autopilot Device
@@ -4319,7 +4336,7 @@ function Invoke-DeviceSearch {
                     }
                     $serial = $IntuneDevice?.serialNumber ?? $serialFromPhysicalIds
                     if ($serial) {
-                        $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$serial')"
+                        $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$(ConvertTo-ODataStringValue -Value $serial)')"
                         $AutopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                         if ($AutopilotDevice) { $AutopilotCount++ }
                     }
@@ -4348,10 +4365,14 @@ function Invoke-DeviceSearch {
                 }
             }
             elseif ($SearchOption -eq "Contains (partial match)") {
-                # Batch Entra (startsWith) + Intune (contains) queries
+                # Batch Entra (startsWith) + Intune (contains) queries.
+                # NOTE: Intune managedDevices supports contains() on deviceName but NOT on serialNumber.
+                # Combining them with 'or' makes the whole filter return zero rows (the unsupported clause
+                # poisons the query), so we only filter on deviceName here. Partial serial matches are still
+                # covered client-side for Autopilot below, and exact serials via the "Serial Number" search.
                 $batchRequests = @(
-                    @{ id = "entra"; method = "GET"; url = "/devices?`$filter=startsWith(displayName,'$SearchText')&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds&`$count=true"; headers = @{ "ConsistencyLevel" = "eventual" } }
-                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=contains(deviceName,'$SearchText')&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
+                    @{ id = "entra"; method = "GET"; url = "/devices?`$filter=startsWith(displayName,'$escapedSearchText')&`$select=id,deviceId,displayName,operatingSystem,approximateLastSignInDateTime,accountEnabled,physicalIds&`$count=true"; headers = @{ "ConsistencyLevel" = "eventual" } }
+                    @{ id = "intune"; method = "GET"; url = "/deviceManagement/managedDevices?`$filter=contains(deviceName,'$escapedSearchText')&`$select=id,deviceName,serialNumber,operatingSystem,userDisplayName,lastSyncDateTime,azureADDeviceId,complianceState,managementAgent" }
                 )
                 $batchResponses = Invoke-GraphBatchRequest -Requests $batchRequests
                 $entraResp = $batchResponses | Where-Object { $_.id -eq "entra" }
@@ -5156,7 +5177,7 @@ $OffboardButton.Add_Click({
             try {
                 # If we have a device name but no Entra ID, try to resolve it
                 if ($device.DeviceName -and -not $device.EntraDeviceId) {
-                    $uri = "https://graph.microsoft.com/beta/devices?`$filter=displayName eq '$($device.DeviceName)'"
+                    $uri = "https://graph.microsoft.com/beta/devices?`$filter=displayName eq '$(ConvertTo-ODataStringValue -Value $device.DeviceName)'"
                     $entraDevices = Get-GraphPagedResults -Uri $uri
                     if ($entraDevices -and @($entraDevices).Count -eq 1) {
                         $entraDevice = $entraDevices | Select-Object -First 1
@@ -5170,7 +5191,7 @@ $OffboardButton.Add_Click({
                 }
                 # If we have a device name but no Intune ID, try to resolve it
                 if ($device.DeviceName -and -not $device.IntuneDeviceId) {
-                    $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=deviceName eq '$($device.DeviceName)'"
+                    $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=deviceName eq '$(ConvertTo-ODataStringValue -Value $device.DeviceName)'"
                     $intuneDevices = Get-GraphPagedResults -Uri $uri
                     if ($intuneDevices -and @($intuneDevices).Count -eq 1) {
                         $device.IntuneDeviceId = ($intuneDevices | Select-Object -First 1).id
@@ -5181,7 +5202,7 @@ $OffboardButton.Add_Click({
                 }
                 # If we have a serial number but no Autopilot ID, try to resolve it
                 if ($device.SerialNumber -and -not $device.AutopilotIdentityId) {
-                    $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$($device.SerialNumber)')"
+                    $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$(ConvertTo-ODataStringValue -Value $device.SerialNumber)')"
                     $autopilotDevice = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
                     if ($autopilotDevice) {
                         $device.AutopilotIdentityId = $autopilotDevice.id
@@ -5667,7 +5688,6 @@ $OffboardButton.Add_Click({
 
         # Create results collection to track all operations
         $offboardingResults = @()
-        $bulkAutopilotIds = @()
 
         try {
             # Determine which services are selected
@@ -5706,10 +5726,10 @@ $OffboardButton.Add_Click({
                 }
             }
 
-            # Collect serial numbers and Autopilot IDs for potential bulk deletion (2+ devices)
+            # Collect serial numbers for potential bulk Autopilot deletion (2+ devices).
+            # The deleteDevices endpoint takes serialNumbers, so only serials are needed.
             $bulkAutopilotSerials = @()
             if ($deleteAutopilot) {
-                $bulkAutopilotIds = @($selectedDevices | Where-Object { $_.AutopilotIdentityId } | ForEach-Object { $_.AutopilotIdentityId })
                 $bulkAutopilotSerials = @($selectedDevices | Where-Object { $_.AutopilotIdentityId -and $_.SerialNumber } | ForEach-Object { $_.SerialNumber })
             }
             $useBulkAutopilot = $bulkAutopilotSerials.Count -ge 2
@@ -8225,7 +8245,6 @@ $ExportPlaybookResultsButton = $Window.FindName('ExportPlaybookResultsButton')
 $ExportPlaybookResultsButton.Add_Click({
         $results = $PlaybookResultsDataGrid.ItemsSource
         if ($results -and $results.Count -gt 0) {
-            $playbookName = $Window.FindName('PlaybookResultsHeader').Text
             $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
             $fileName = "Playbook_Results_${timestamp}.csv"
             Export-DeviceListToCSV -DeviceList $results -DefaultFileName $fileName
@@ -8242,6 +8261,8 @@ $StaleDevices30Card.Add_MouseLeftButtonUp({
             $previousCursor = $Window.Cursor
             try {
                 $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+                Show-Toast -Message "Loading devices..." -Type "info" -DurationSeconds 3
+                $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action] {})
                 Write-Log "Fetching 30-day stale devices..."
                 $thirtyDaysAgo = (Get-Date).AddDays(-30)
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($thirtyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
@@ -8288,6 +8309,8 @@ $StaleDevices90Card.Add_MouseLeftButtonUp({
             $previousCursor = $Window.Cursor
             try {
                 $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+                Show-Toast -Message "Loading devices..." -Type "info" -DurationSeconds 3
+                $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action] {})
                 Write-Log "Fetching 90-day stale devices..."
                 $ninetyDaysAgo = (Get-Date).AddDays(-90)
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($ninetyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
@@ -8332,6 +8355,8 @@ $StaleDevices180Card.Add_MouseLeftButtonUp({
             $previousCursor = $Window.Cursor
             try {
                 $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+                Show-Toast -Message "Loading devices..." -Type "info" -DurationSeconds 3
+                $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action] {})
                 Write-Log "Fetching 180-day stale devices..."
                 $hundredEightyDaysAgo = (Get-Date).AddDays(-180)
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $($hundredEightyDaysAgo.ToString('yyyy-MM-ddTHH:mm:ssZ'))&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
@@ -8376,6 +8401,8 @@ $PersonalDevicesCard.Add_MouseLeftButtonUp({
             $previousCursor = $Window.Cursor
             try {
                 $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+                Show-Toast -Message "Loading devices..." -Type "info" -DurationSeconds 3
+                $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action] {})
                 Write-Log "Fetching personal devices..."
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'personal'&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $personalDevices = Get-GraphPagedResults -Uri $uri
@@ -8417,6 +8444,8 @@ $CorporateDevicesCard.Add_MouseLeftButtonUp({
             $previousCursor = $Window.Cursor
             try {
                 $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+                Show-Toast -Message "Loading devices..." -Type "info" -DurationSeconds 3
+                $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action] {})
                 Write-Log "Fetching corporate devices..."
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'company'&`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $corporateDevices = Get-GraphPagedResults -Uri $uri
@@ -8459,6 +8488,8 @@ $IntuneDevicesCard.Add_MouseLeftButtonUp({
             $previousCursor = $Window.Cursor
             try {
                 $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+                Show-Toast -Message "Loading devices..." -Type "info" -DurationSeconds 3
+                $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action] {})
                 Write-Log "Fetching all Intune devices..."
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=deviceName,serialNumber,lastSyncDateTime,operatingSystem,osVersion,userPrincipalName,managedDeviceOwnerType"
                 $intuneDevices = Get-GraphPagedResults -Uri $uri
@@ -8500,6 +8531,8 @@ $AutopilotDevicesCard.Add_MouseLeftButtonUp({
             $previousCursor = $Window.Cursor
             try {
                 $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+                Show-Toast -Message "Loading devices..." -Type "info" -DurationSeconds 3
+                $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action] {})
                 Write-Log "Fetching all Autopilot devices..."
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities"
                 $autopilotDevices = Get-GraphPagedResults -Uri $uri
@@ -8541,6 +8574,8 @@ $EntraIDDevicesCard.Add_MouseLeftButtonUp({
             $previousCursor = $Window.Cursor
             try {
                 $Window.Cursor = [System.Windows.Input.Cursors]::Wait
+                Show-Toast -Message "Loading devices..." -Type "info" -DurationSeconds 3
+                $Window.Dispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::ApplicationIdle, [Action] {})
                 Write-Log "Fetching all Entra ID devices..."
                 $uri = "https://graph.microsoft.com/beta/devices?`$select=displayName,operatingSystem,operatingSystemVersion,approximateLastSignInDateTime,deviceOwnership"
                 $entraDevices = Get-GraphPagedResults -Uri $uri

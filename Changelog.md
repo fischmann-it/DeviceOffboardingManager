@@ -1,6 +1,8 @@
-## Version 0.3 - 3/14/2026
+## Version 0.3 - Unreleased
 
 ### Bug Fixes
+- **Dashboard Card Loading Feedback**: Clicking a dashboard statistic card now shows an immediate loading indicator (wait cursor + toast) before the device list is fetched, instead of the window appearing to freeze.
+- **OData Filter Escaping**: Search text and device-derived values (names, serials) are now escaped before being interpolated into Graph `$filter` expressions, so device names containing apostrophes no longer break search queries.
 - **Fixed 8 Critical Bugs** across device offboarding and playbook execution
   - Fixed Autopilot property typo (`lastContactDateTime` -> `lastContactedDateTime`)
   - Fixed BitLocker key retrieval array bug: access first element explicitly
