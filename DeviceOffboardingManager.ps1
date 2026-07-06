@@ -5674,8 +5674,17 @@ $OffboardButton.Add_Click({
                     param($sender, $e)
                     $button = $e.OriginalSource -as [System.Windows.Controls.Button]
                     if ($button -and $button.Tag) {
-                        Set-Clipboard -Value $button.Tag
-                        $button.Content = "Copied!"
+                        # Clipboard access can fail transiently (e.g. CLIPBRD_E_CANT_OPEN in
+                        # RDP sessions or when another process holds the clipboard). Never let
+                        # that exception escape the routed event handler (Issue #38).
+                        try {
+                            Set-Clipboard -Value $button.Tag -ErrorAction Stop
+                            $button.Content = "Copied!"
+                        }
+                        catch {
+                            Write-Log "Failed to copy recovery key to clipboard: $_" -Severity "WARN"
+                            $button.Content = "Copy failed"
+                        }
                         $script:copyButtonTimer = New-Object System.Windows.Threading.DispatcherTimer
                         $script:copyButtonTimer.Interval = [TimeSpan]::FromSeconds(2)
                         $script:copyButtonTimer.Add_Tick({
@@ -7941,46 +7950,46 @@ foreach ($button in $PlaybookButtons) {
         
             switch ($playbookName) {
                 "Autopilot Devices Not in Intune" {
-                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_1.ps1"
+                    $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_1.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "Intune Devices Not in Autopilot" {
-                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_2.ps1"
+                    $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_2.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "Corporate Device Inventory" {
-                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_3.ps1"
+                    $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_3.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "Personal Device Inventory" {
-                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_4.ps1"
+                    $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_4.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "Stale Device Report" {
-                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_5.ps1"
+                    $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_5.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "OS-Specific Device List" {
                     $selectedOS = Show-OSPickerDialog
                     if ($selectedOS) {
-                        $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_6.ps1"
+                        $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_6.ps1"
                         Invoke-Playbook -PlaybookName "$playbookName ($selectedOS)" -PlaybookPath $playbookPath -Description $playbookDescription -Parameters @{ OSFilter = $selectedOS }
                     }
                 }
                 "Outdated OS Report" {
-                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_7.ps1"
+                    $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_7.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "End-of-Life OS Report" {
-                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_8.ps1"
+                    $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_8.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "BitLocker Key Report" {
-                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_9.ps1"
+                    $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_9.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 "FileVault Key Report" {
-                    $playbookPath = Join-Path $PSScriptRoot "Playbooks" "Playbook_10.ps1"
+                    $playbookPath = Join-Path (Get-PlaybookRoot) "Playbook_10.ps1"
                     Invoke-Playbook -PlaybookName $playbookName -PlaybookPath $playbookPath -Description $playbookDescription
                 }
                 default {
@@ -8226,6 +8235,835 @@ function Show-PlaybookProgressModal {
 }
 
 # Function to execute playbook
+# Embedded copies of the bundled playbooks. Publish-Script/Install-Script only
+# deliver this single .ps1, so gallery installs have no Playbooks/ directory;
+# Get-PlaybookRoot extracts these to the config directory in that case.
+# Keep in sync with the Playbooks/ directory.
+$script:EmbeddedPlaybooks = [ordered]@{
+    'PlaybookHelpers.ps1' = @'
+# Shared helper functions for all playbooks
+# Dot-source this file at the top of each playbook:
+#   $helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+#   . $helpersPath
+
+function ConvertTo-SafeDateTime {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$dateString
+    )
+
+    if ([string]::IsNullOrWhiteSpace($dateString)) {
+        return $null
+    }
+
+    $formats = @(
+        "yyyy-MM-ddTHH:mm:ssZ",
+        "yyyy-MM-ddTHH:mm:ss.fffffffZ",
+        "yyyy-MM-ddTHH:mm:ss",
+        "MM/dd/yyyy HH:mm:ss",
+        "dd/MM/yyyy HH:mm:ss",
+        "yyyy-MM-dd HH:mm:ss",
+        "M/d/yyyy h:mm:ss tt",
+        "M/d/yyyy H:mm:ss"
+    )
+
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+
+    foreach ($format in $formats) {
+        try {
+            $parsedDate = [DateTime]::ParseExact($dateString, $format, $culture, [System.Globalization.DateTimeStyles]::None)
+            if ($parsedDate -eq [DateTime]::MinValue) { return $null }
+            return $parsedDate
+        }
+        catch { continue }
+    }
+
+    try {
+        $parsedDate = [DateTime]::Parse($dateString, $culture)
+        if ($parsedDate -eq [DateTime]::MinValue) { return $null }
+        return $parsedDate
+    }
+    catch {
+        Write-Warning "Failed to parse date: $dateString"
+        return $null
+    }
+}
+
+function Invoke-GraphRequestWithRetry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+        [string]$Method = "GET",
+        [string]$Body,
+        [string]$ContentType = "application/json",
+        [hashtable]$Headers = @{},
+        [int]$MaxRetries = 3,
+        [int]$BaseDelaySeconds = 2
+    )
+
+    $attempt = 0
+    while ($true) {
+        try {
+            $params = @{
+                Uri    = $Uri
+                Method = $Method
+            }
+            if ($Headers.Count -gt 0) { $params.Headers = $Headers }
+            if ($Body) {
+                $params.Body = $Body
+                $params.ContentType = $ContentType
+            }
+            return Invoke-MgGraphRequest @params
+        }
+        catch {
+            $attempt++
+            $statusCode = $null
+            if ($_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            }
+
+            if ($statusCode -eq 429) {
+                if ($attempt -gt $MaxRetries) { throw }
+                $retryAfter = $BaseDelaySeconds
+                if ($_.Exception.Response.Headers -and $_.Exception.Response.Headers['Retry-After']) {
+                    $retryAfter = [int]$_.Exception.Response.Headers['Retry-After']
+                }
+                Write-Warning "Throttled (429) on $Method $Uri -- retrying in ${retryAfter}s (attempt $attempt/$MaxRetries)"
+                Start-Sleep -Seconds $retryAfter
+                continue
+            }
+
+            if ($null -eq $statusCode -or ($statusCode -ge 500 -and $statusCode -lt 600)) {
+                if ($attempt -gt $MaxRetries) { throw }
+                $delay = $BaseDelaySeconds * [Math]::Pow(2, $attempt - 1)
+                Write-Warning "Server error ($statusCode) on $Method $Uri -- retrying in ${delay}s (attempt $attempt/$MaxRetries)"
+                Start-Sleep -Seconds $delay
+                continue
+            }
+
+            throw
+        }
+    }
+}
+
+function Get-GraphPagedResults {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+        [hashtable]$Headers = @{}
+    )
+
+    $results = @()
+    $nextLink = $Uri
+
+    do {
+        try {
+            $response = Invoke-GraphRequestWithRetry -Uri $nextLink -Method GET -Headers $Headers
+            if ($response.value) {
+                $results += $response.value
+            }
+            $nextLink = $response.'@odata.nextLink'
+        }
+        catch {
+            Write-Error "Error in pagination: $_"
+            break
+        }
+    } while ($nextLink)
+
+    return $results
+}
+
+'@
+    'Playbook_1.ps1' = @'
+# Playbook: List all devices that are in Autopilot but not in Intune
+# This script identifies devices that are registered in Windows Autopilot but not present in Intune management
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-AutopilotNotIntuneDevices {
+    try {
+        # Get all Autopilot devices
+        Write-Host "Fetching Autopilot devices..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime,model,manufacturer"
+        $autopilotDevices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($autopilotDevices.Count) Autopilot devices" -ForegroundColor Green
+
+        # Get all Intune devices
+        Write-Host "Fetching Intune devices..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=serialNumber"
+        $intuneDevices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($intuneDevices.Count) Intune devices" -ForegroundColor Green
+
+        # Create a HashSet of Intune serial numbers for efficient lookup
+        $intuneSerialNumbers = [System.Collections.Generic.HashSet[string]]::new()
+        foreach ($device in $intuneDevices) {
+            if ($device.serialNumber) {
+                $intuneSerialNumbers.Add($device.serialNumber) | Out-Null
+            }
+        }
+
+        # Find devices in Autopilot but not in Intune using efficient HashSet lookup
+        $notEnrolledDevices = $autopilotDevices | Where-Object {
+            -not $intuneSerialNumbers.Contains($_.serialNumber)
+        } | ForEach-Object {
+            [PSCustomObject]@{
+                DeviceName = $_.displayName
+                SerialNumber = $_.serialNumber
+                OperatingSystem = "$($_.model) ($($_.manufacturer))"
+                PrimaryUser = "Not enrolled"
+                AutopilotLastContact = ConvertTo-SafeDateTime -dateString $_.lastContactedDateTime
+            }
+        }
+
+        Write-Host "Found $($notEnrolledDevices.Count) devices in Autopilot that are not enrolled in Intune" -ForegroundColor Yellow
+        return $notEnrolledDevices
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+# Execute the playbook and return results
+$results = Get-AutopilotNotIntuneDevices
+if ($results) {
+    # Display results in console for debugging
+    $results | Format-Table -AutoSize
+}
+
+# Return results to be displayed in UI
+return $results
+
+'@
+    'Playbook_2.ps1' = @'
+# Playbook: List all devices that are in Intune but not in Autopilot
+# This script identifies devices that are managed in Intune but not registered in Windows Autopilot
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-IntuneNotAutopilotDevices {
+    try {
+        # Get all Autopilot devices
+        Write-Host "Fetching Autopilot devices..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=serialNumber"
+        $autopilotDevices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($autopilotDevices.Count) Autopilot devices" -ForegroundColor Green
+
+        # Get all Intune devices
+        Write-Host "Fetching Intune devices..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=id,deviceName,serialNumber,operatingSystem,model,userDisplayName,lastSyncDateTime"
+        $intuneDevices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($intuneDevices.Count) Intune devices" -ForegroundColor Green
+
+        # Create a HashSet of Autopilot serial numbers for efficient lookup
+        $autopilotSerialNumbers = [System.Collections.Generic.HashSet[string]]::new()
+        foreach ($device in $autopilotDevices) {
+            if ($device.serialNumber) {
+                $autopilotSerialNumbers.Add($device.serialNumber) | Out-Null
+            }
+        }
+
+        # Find devices in Intune but not in Autopilot using efficient HashSet lookup
+        $notInAutopilotDevices = $intuneDevices | Where-Object {
+            $_.serialNumber -and -not $autopilotSerialNumbers.Contains($_.serialNumber)
+        } | ForEach-Object {
+            [PSCustomObject]@{
+                DeviceName        = $_.deviceName
+                SerialNumber      = $_.serialNumber
+                OperatingSystem   = $_.operatingSystem
+                Model             = $_.model
+                PrimaryUser       = $_.userDisplayName
+                IntuneLastContact = ConvertTo-SafeDateTime -dateString $_.lastSyncDateTime
+            }
+        }
+
+        Write-Host "Found $($notInAutopilotDevices.Count) devices in Intune that are not registered in Autopilot" -ForegroundColor Yellow
+        return $notInAutopilotDevices
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+# Execute the playbook and return results
+$results = Get-IntuneNotAutopilotDevices
+if ($results) {
+    # Display results in console for debugging
+    $results | Format-Table -AutoSize
+}
+
+# Return results to be displayed in UI
+return $results
+'@
+    'Playbook_3.ps1' = @'
+# Playbook: List all corporate devices in Intune
+# This script identifies all company-owned devices managed in Intune
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-CorporateDevices {
+    try {
+        # Get all corporate devices from Intune
+        Write-Host "Fetching corporate devices from Intune..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'company'&`$select=deviceName,serialNumber,operatingSystem,model,managedDeviceOwnerType,lastSyncDateTime"
+        $corporateDevices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($corporateDevices.Count) corporate devices" -ForegroundColor Green
+
+        # Format the devices for display
+        $formattedDevices = $corporateDevices | ForEach-Object {
+            [PSCustomObject]@{
+                DeviceName        = $_.deviceName
+                SerialNumber      = $_.serialNumber
+                OperatingSystem   = $_.operatingSystem
+                Model             = $_.model
+                OwnershipType     = $_.managedDeviceOwnerType
+                IntuneLastContact = ConvertTo-SafeDateTime -dateString $_.lastSyncDateTime
+            }
+        }
+
+        Write-Host "Successfully processed $($formattedDevices.Count) corporate devices" -ForegroundColor Yellow
+        return $formattedDevices
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+# Execute the playbook and return results
+$results = Get-CorporateDevices
+if ($results) {
+    # Display results in console for debugging
+    $results | Format-Table -AutoSize
+}
+
+# Return results to be displayed in UI
+return $results
+'@
+    'Playbook_4.ps1' = @'
+# Playbook: List all personal devices in Intune
+# This script identifies all personally-owned devices managed in Intune
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-PersonalDevices {
+    try {
+        # Get all personal devices from Intune
+        Write-Host "Fetching personal devices from Intune..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=managedDeviceOwnerType eq 'personal'&`$select=deviceName,serialNumber,operatingSystem,model,managedDeviceOwnerType,lastSyncDateTime"
+        $personalDevices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($personalDevices.Count) personal devices" -ForegroundColor Green
+
+        # Format the devices for display
+        $formattedDevices = $personalDevices | ForEach-Object {
+            [PSCustomObject]@{
+                DeviceName        = $_.deviceName
+                SerialNumber      = $_.serialNumber
+                OperatingSystem   = $_.operatingSystem
+                Model             = $_.model
+                OwnershipType     = $_.managedDeviceOwnerType
+                IntuneLastContact = ConvertTo-SafeDateTime -dateString $_.lastSyncDateTime
+            }
+        }
+
+        Write-Host "Successfully processed $($formattedDevices.Count) personal devices" -ForegroundColor Yellow
+        return $formattedDevices
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+# Execute the playbook and return results
+$results = Get-PersonalDevices
+if ($results) {
+    # Display results in console for debugging
+    $results | Format-Table -AutoSize
+}
+
+# Return results to be displayed in UI
+return $results
+'@
+    'Playbook_5.ps1' = @'
+# Playbook: List all stale devices in Intune
+# This script identifies devices that haven't checked in for a specified number of days
+
+param(
+    [int]$StaleDays = 30 # Default to 30 days if not specified
+)
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-StaleDevices {
+    param(
+        [int]$StaleDays = 30
+    )
+    
+    try {
+        # Calculate the stale date threshold
+        $staleDate = (Get-Date).AddDays(-$StaleDays)
+        $staleDateString = $staleDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        
+        # Get all stale devices from Intune
+        Write-Host "Fetching devices not synced since $staleDateString..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=lastSyncDateTime lt $staleDateString&`$select=deviceName,serialNumber,operatingSystem,model,managedDeviceOwnerType,lastSyncDateTime"
+        $staleDevices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($staleDevices.Count) stale devices" -ForegroundColor Green
+
+        # Format the devices for display and calculate days since last sync
+        $formattedDevices = $staleDevices | ForEach-Object {
+            $lastSyncDate = ConvertTo-SafeDateTime -dateString $_.lastSyncDateTime
+            $diffDays = if ($lastSyncDate) { 
+                [Math]::Ceiling(([DateTime]::Now - $lastSyncDate).TotalDays)
+            }
+            else { 
+                "Unknown" 
+            }
+            
+            [PSCustomObject]@{
+                DeviceName        = $_.deviceName
+                SerialNumber      = $_.serialNumber
+                OperatingSystem   = $_.operatingSystem
+                Model             = $_.model
+                OwnershipType     = $_.managedDeviceOwnerType
+                IntuneLastContact = $lastSyncDate
+                DaysSinceLastSync = $diffDays
+            }
+        }
+
+        # Sort by days since last sync (descending)
+        $formattedDevices = $formattedDevices | Sort-Object -Property DaysSinceLastSync -Descending
+
+        Write-Host "Successfully processed $($formattedDevices.Count) stale devices" -ForegroundColor Yellow
+        return $formattedDevices
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+# Execute the playbook and return results
+$results = Get-StaleDevices -StaleDays $StaleDays
+if ($results) {
+    # Display results in console for debugging
+    $results | Format-Table -AutoSize
+}
+
+# Return results to be displayed in UI
+return $results
+'@
+    'Playbook_6.ps1' = @'
+# Playbook: List devices by operating system
+# This script filters managed devices by a specified operating system
+
+param(
+    [string]$OSFilter = "Windows"
+)
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-OSSpecificDevices {
+    param(
+        [string]$OSFilter = "Windows"
+    )
+
+    try {
+        Write-Host "Fetching $OSFilter devices from Intune..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=operatingSystem eq '$OSFilter'&`$select=deviceName,serialNumber,operatingSystem,model,osVersion,lastSyncDateTime,userDisplayName"
+        $devices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($devices.Count) $OSFilter devices" -ForegroundColor Green
+
+        $formattedDevices = $devices | ForEach-Object {
+            [PSCustomObject]@{
+                DeviceName        = $_.deviceName
+                SerialNumber      = $_.serialNumber
+                OperatingSystem   = $_.operatingSystem
+                Model             = $_.model
+                OSVersion         = $_.osVersion
+                IntuneLastContact = ConvertTo-SafeDateTime -dateString $_.lastSyncDateTime
+                PrimaryUser       = $_.userDisplayName
+            }
+        }
+
+        Write-Host "Successfully processed $($formattedDevices.Count) devices" -ForegroundColor Yellow
+        return $formattedDevices
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+$results = Get-OSSpecificDevices -OSFilter $OSFilter
+if ($results) {
+    $results | Format-Table -AutoSize
+}
+
+return $results
+
+'@
+    'Playbook_7.ps1' = @'
+# Playbook: Find devices running outdated OS versions
+# This script compares device OS versions against known latest versions
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-OutdatedOSDevices {
+    # Latest known OS versions (update these as new versions release)
+    $latestVersions = @{
+        "Windows" = "10.0.26100"   # Windows 11 24H2
+        "macOS"   = "15.3"
+        "iOS"     = "18.3"
+        "Android" = "15"
+    }
+
+    try {
+        Write-Host "Fetching all managed devices..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=deviceName,serialNumber,operatingSystem,osVersion,lastSyncDateTime"
+        $devices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($devices.Count) total devices" -ForegroundColor Green
+
+        $outdatedDevices = @()
+        foreach ($device in $devices) {
+            $os = $device.operatingSystem
+            $currentVersion = $device.osVersion
+
+            if (-not $currentVersion -or -not $os) { continue }
+
+            $latestVersion = $null
+            foreach ($key in $latestVersions.Keys) {
+                if ($os -match $key) {
+                    $latestVersion = $latestVersions[$key]
+                    break
+                }
+            }
+
+            if (-not $latestVersion) { continue }
+
+            # Compare versions - device is outdated if its version is less than the latest
+            try {
+                $currentParts = $currentVersion -split '\.' | ForEach-Object { [int]$_ }
+                $latestParts = $latestVersion -split '\.' | ForEach-Object { [int]$_ }
+
+                $isOutdated = $false
+                $maxParts = [Math]::Max($currentParts.Count, $latestParts.Count)
+                for ($i = 0; $i -lt $maxParts; $i++) {
+                    $c = if ($i -lt $currentParts.Count) { $currentParts[$i] } else { 0 }
+                    $l = if ($i -lt $latestParts.Count) { $latestParts[$i] } else { 0 }
+                    if ($c -lt $l) { $isOutdated = $true; break }
+                    if ($c -gt $l) { break }
+                }
+
+                if ($isOutdated) {
+                    $outdatedDevices += [PSCustomObject]@{
+                        DeviceName        = $device.deviceName
+                        SerialNumber      = $device.serialNumber
+                        OperatingSystem   = $os
+                        CurrentVersion    = $currentVersion
+                        LatestVersion     = $latestVersion
+                        IntuneLastContact = ConvertTo-SafeDateTime -dateString $device.lastSyncDateTime
+                    }
+                }
+            }
+            catch {
+                # Skip devices with unparseable versions
+                continue
+            }
+        }
+
+        Write-Host "Found $($outdatedDevices.Count) devices with outdated OS" -ForegroundColor Yellow
+        return $outdatedDevices
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+$results = Get-OutdatedOSDevices
+if ($results) {
+    $results | Format-Table -AutoSize
+}
+
+return $results
+
+'@
+    'Playbook_8.ps1' = @'
+# Playbook: Identify devices running end-of-life OS versions
+# This script checks devices against known OS end-of-life dates
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-EOLDevices {
+    # End-of-life dates for OS versions (OS name pattern -> EOL date)
+    $eolTable = @(
+        @{ Pattern = "^10\.0\.(1904[0-3]|1836[0-7]|1776[0-5]|1713[0-4]|1658[0-9]|1600[0-9]|1439[0-3]|1058[0-6]|1024[0-0])"; OS = "Windows 10"; EOLDate = "2025-10-14" }
+        @{ Pattern = "^12\."; OS = "macOS 12 Monterey"; EOLDate = "2024-09-16" }
+        @{ Pattern = "^13\."; OS = "macOS 13 Ventura"; EOLDate = "2025-10-01" }
+        @{ Pattern = "^16\."; OS = "iOS 16"; EOLDate = "2024-09-16" }
+        @{ Pattern = "^17\."; OS = "iOS 17"; EOLDate = "2025-09-15" }
+        @{ Pattern = "^13$|^13\."; OS = "Android 13"; EOLDate = "2025-03-01" }
+    )
+
+    try {
+        Write-Host "Fetching all managed devices..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=deviceName,serialNumber,operatingSystem,osVersion,lastSyncDateTime"
+        $devices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($devices.Count) total devices" -ForegroundColor Green
+
+        $eolDevices = @()
+        $today = Get-Date
+
+        foreach ($device in $devices) {
+            $osVersion = $device.osVersion
+            $osName = $device.operatingSystem
+            if (-not $osVersion) { continue }
+
+            foreach ($eolEntry in $eolTable) {
+                $matchVersion = $osVersion
+                # For Windows, use the full build number; for others use osVersion directly
+                if ($osName -eq "Windows" -and $osVersion -match "^10\.0\.(\d+)") {
+                    $matchVersion = $osVersion
+                } elseif ($osName -ne "Windows") {
+                    $matchVersion = $osVersion
+                }
+
+                if ($matchVersion -match $eolEntry.Pattern) {
+                    $eolDate = [DateTime]::Parse($eolEntry.EOLDate)
+                    $daysPast = [Math]::Ceiling(($today - $eolDate).TotalDays)
+
+                    $eolDevices += [PSCustomObject]@{
+                        DeviceName        = $device.deviceName
+                        SerialNumber      = $device.serialNumber
+                        OperatingSystem   = "$osName ($($eolEntry.OS))"
+                        OSVersion         = $osVersion
+                        EndOfSupportDate  = $eolEntry.EOLDate
+                        DaysPastEOL       = $daysPast
+                    }
+                    break
+                }
+            }
+        }
+
+        $eolDevices = $eolDevices | Sort-Object -Property DaysPastEOL -Descending
+        Write-Host "Found $($eolDevices.Count) devices running EOL operating systems" -ForegroundColor Yellow
+        return $eolDevices
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+$results = Get-EOLDevices
+if ($results) {
+    $results | Format-Table -AutoSize
+}
+
+return $results
+
+'@
+    'Playbook_9.ps1' = @'
+# Playbook: BitLocker Key Report
+# This script retrieves BitLocker recovery key metadata for all Windows devices
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-BitLockerKeyReport {
+    try {
+        # Get all BitLocker recovery keys (metadata only, not actual key values)
+        Write-Host "Fetching BitLocker recovery key metadata..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/informationProtection/bitlocker/recoveryKeys?`$select=id,createdDateTime,deviceId,volumeType"
+        $recoveryKeys = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($recoveryKeys.Count) BitLocker recovery keys" -ForegroundColor Green
+
+        if ($recoveryKeys.Count -eq 0) {
+            Write-Host "No BitLocker recovery keys found" -ForegroundColor Yellow
+            return @([PSCustomObject]@{
+                DeviceName      = "No keys found"
+                SerialNumber    = "N/A"
+                KeyId           = "N/A"
+                VolumeType      = "N/A"
+                CreatedDateTime = $null
+            })
+        }
+
+        # Get unique device IDs and resolve device names
+        $deviceIds = $recoveryKeys | Select-Object -ExpandProperty deviceId -Unique | Where-Object { $_ }
+        Write-Host "Resolving device names for $($deviceIds.Count) devices..." -ForegroundColor Cyan
+
+        $deviceInfoMap = @{}
+        foreach ($deviceId in $deviceIds) {
+            try {
+                # Get device name from Entra
+                $uri = "https://graph.microsoft.com/beta/devices?`$filter=deviceId eq '$deviceId'&`$select=displayName"
+                $device = (Get-GraphPagedResults -Uri $uri) | Select-Object -First 1
+                $devName = if ($device) { $device.displayName } else { "Unknown Device" }
+
+                # Get serial number from Intune via azureADDeviceId
+                $serialNumber = "N/A"
+                try {
+                    $intuneUri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=azureADDeviceId eq '$deviceId'&`$select=serialNumber"
+                    $intuneDevice = (Get-GraphPagedResults -Uri $intuneUri) | Select-Object -First 1
+                    if ($intuneDevice -and $intuneDevice.serialNumber) {
+                        $serialNumber = $intuneDevice.serialNumber
+                    }
+                } catch {}
+
+                $deviceInfoMap[$deviceId] = @{ Name = $devName; Serial = $serialNumber }
+            }
+            catch {
+                continue
+            }
+        }
+
+        $formattedKeys = $recoveryKeys | ForEach-Object {
+            $info = if ($_.deviceId -and $deviceInfoMap.ContainsKey($_.deviceId)) {
+                $deviceInfoMap[$_.deviceId]
+            } else { @{ Name = "Unknown Device"; Serial = "N/A" } }
+
+            [PSCustomObject]@{
+                DeviceName      = $info.Name
+                SerialNumber    = $info.Serial
+                KeyId           = $_.id
+                VolumeType      = $_.volumeType
+                CreatedDateTime = ConvertTo-SafeDateTime -dateString $_.createdDateTime
+            }
+        }
+
+        Write-Host "Successfully processed $($formattedKeys.Count) BitLocker keys" -ForegroundColor Yellow
+        return $formattedKeys
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+$results = Get-BitLockerKeyReport
+if ($results) {
+    $results | Format-Table -AutoSize
+}
+
+return $results
+
+'@
+    'Playbook_10.ps1' = @'
+# Playbook: FileVault Key Report
+# This script checks FileVault key availability for all macOS devices
+
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
+
+function Get-FileVaultKeyReport {
+    try {
+        Write-Host "Fetching macOS devices from Intune..." -ForegroundColor Cyan
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$filter=operatingSystem eq 'macOS'&`$select=id,deviceName,serialNumber,lastSyncDateTime"
+        $macDevices = Get-GraphPagedResults -Uri $uri
+        Write-Host "Found $($macDevices.Count) macOS devices" -ForegroundColor Green
+
+        if ($macDevices.Count -eq 0) {
+            Write-Host "No macOS devices found" -ForegroundColor Yellow
+            return @([PSCustomObject]@{
+                DeviceName        = "No macOS devices found"
+                SerialNumber      = "N/A"
+                HasFileVaultKey   = "N/A"
+                IntuneLastContact = $null
+            })
+        }
+
+        Write-Host "Checking FileVault key availability for each device..." -ForegroundColor Cyan
+        $formattedDevices = @()
+        $counter = 0
+
+        foreach ($device in $macDevices) {
+            $counter++
+            if ($counter % 10 -eq 0) {
+                Write-Host "  Checked $counter of $($macDevices.Count) devices..." -ForegroundColor Gray
+            }
+
+            $hasKey = $false
+            try {
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices('$($device.id)')/getFileVaultKey"
+                $keyResponse = Invoke-MgGraphRequest -Uri $uri -Method GET
+                if ($keyResponse.value) {
+                    $hasKey = $true
+                }
+            }
+            catch {
+                # 404 or other error means no key available
+                $hasKey = $false
+            }
+
+            $formattedDevices += [PSCustomObject]@{
+                DeviceName        = $device.deviceName
+                SerialNumber      = $device.serialNumber
+                HasFileVaultKey   = if ($hasKey) { "Yes" } else { "No" }
+                IntuneLastContact = ConvertTo-SafeDateTime -dateString $device.lastSyncDateTime
+            }
+        }
+
+        Write-Host "Successfully processed $($formattedDevices.Count) macOS devices" -ForegroundColor Yellow
+        return $formattedDevices
+    }
+    catch {
+        Write-Error "Error executing playbook: $_"
+        return $null
+    }
+}
+
+$results = Get-FileVaultKeyReport
+if ($results) {
+    $results | Format-Table -AutoSize
+}
+
+return $results
+
+'@
+}
+
+$script:ResolvedPlaybookRoot = $null
+
+function Get-PlaybookRoot {
+    if ($script:ResolvedPlaybookRoot -and (Test-Path (Join-Path $script:ResolvedPlaybookRoot "PlaybookHelpers.ps1"))) {
+        return $script:ResolvedPlaybookRoot
+    }
+
+    # Repo/ZIP layout: Playbooks/ sits next to the script.
+    if ($PSScriptRoot) {
+        $localRoot = Join-Path $PSScriptRoot "Playbooks"
+        if (Test-Path (Join-Path $localRoot "PlaybookHelpers.ps1")) {
+            $script:ResolvedPlaybookRoot = $localRoot
+            return $localRoot
+        }
+    }
+
+    # Install-Script layout: only the .ps1 was delivered, so extract the
+    # embedded playbooks into the per-user config directory.
+    $extractRoot = Join-Path $script:ConfigDirectory "Playbooks"
+    if (-not (Test-Path $extractRoot)) {
+        New-Item -Path $extractRoot -ItemType Directory -Force | Out-Null
+    }
+    foreach ($name in $script:EmbeddedPlaybooks.Keys) {
+        Set-Content -Path (Join-Path $extractRoot $name) -Value $script:EmbeddedPlaybooks[$name] -Force
+    }
+    Write-Log "Extracted $($script:EmbeddedPlaybooks.Keys.Count) bundled playbooks to $extractRoot"
+    $script:ResolvedPlaybookRoot = $extractRoot
+    return $extractRoot
+}
+
 function Invoke-Playbook {
     param(
         [string]$PlaybookName,

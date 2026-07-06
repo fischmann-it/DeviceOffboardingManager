@@ -2,6 +2,7 @@
 
 ### Bug Fixes
 - **Dashboard Card Loading Feedback**: Clicking a dashboard statistic card now shows an immediate loading indicator (wait cursor + toast) before the device list is fetched, instead of the window appearing to freeze.
+- **Recovery Key Copy No Longer Crashes the App** (Issue #38): Clipboard failures (e.g. in RDP sessions) while copying a BitLocker/FileVault key are now caught and shown on the button instead of escaping the event handler and destabilizing the offboarding dialogs.
 - **OData Filter Escaping**: Search text and device-derived values (names, serials) are now escaped before being interpolated into Graph `$filter` expressions, so device names containing apostrophes no longer break search queries.
 - **Fixed 8 Critical Bugs** across device offboarding and playbook execution
   - Fixed Autopilot property typo (`lastContactDateTime` -> `lastContactedDateTime`)
@@ -12,6 +13,7 @@
   - Fixed export functions to use actual DeviceObject class properties
   - Fixed playbook result columns to generate dynamically from actual output schema
 - **Local Playbook Execution**: Playbooks now load from local `Playbooks/` directory instead of downloading from GitHub URLs at runtime
+- **Playbooks Work with `Install-Script`** (Issue #15): The script now bundles all playbooks internally and extracts them to `%LocalAppData%/DeviceOffboardingManager/Playbooks` when the local `Playbooks/` directory is absent (PowerShell Gallery installs only deliver the single `.ps1`). Also replaces 3-argument `Join-Path` calls that fail on Windows PowerShell 5.1.
 
 ### Graph API Performance and Reliability
 - **Retry Logic with Backoff**: New `Invoke-GraphRequestWithRetry` wrapper handles 429 throttling (reads Retry-After header), 5xx transient errors (exponential backoff), and network failures
