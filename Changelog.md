@@ -40,6 +40,7 @@
 - **Playbook 8: End-of-Life OS Devices** -- Detect devices running end-of-life OS versions
 - **Playbook 9: BitLocker Key Report** -- Retrieve BitLocker recovery key metadata for Windows devices
 - **Playbook 10: FileVault Key Report** -- Check FileVault key availability for macOS devices
+- **Playbook 11: Corporate Identifier Stale Report** (Issue #41) -- List imported corporate device identifiers with enrollment state and last contact staleness
 - **Shared Playbook Helpers**: Extracted common utility functions (`Get-GraphPagedResults`, `ConvertTo-SafeDateTime`, etc.) into `PlaybookHelpers.ps1` to reduce duplication across playbooks
 
 ---
