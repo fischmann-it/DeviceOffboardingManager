@@ -24,6 +24,7 @@
 - **Added `$select` to All GET Calls**: Every GET endpoint now specifies only the properties used downstream, reducing API payload size
 
 ### New Features
+- **Device Code Authentication** (Issue #59): Added a "Device Code Login (No Browser Redirect)" option to the authentication dialog to avoid browser localhost redirect / WAM issues with interactive Microsoft Graph authentication.
 - **Saved Authentication Config** (Issue #48): Save and auto-load certificate and client secret configurations to `%LocalAppData%/DeviceOffboardingManager`. Client secret is never persisted for security.
 - **Co-Management Awareness**: Displays `ManagementAgent` property on devices and shows an amber warning banner in the confirmation dialog for co-managed devices
 - **Platform Filtering on Dashboard** (Issue #40): ComboBox to filter all dashboard statistics by OS platform

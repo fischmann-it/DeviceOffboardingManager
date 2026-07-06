@@ -2702,8 +2702,12 @@ function ConvertTo-SafeDateTime {
                                 Style="{StaticResource AuthRadioButtonStyle}"
                                 Content="Interactive Login (Browser)"
                                 IsChecked="True"/>
-                    
-                    <RadioButton x:Name="CertificateAuth" 
+
+                    <RadioButton x:Name="DeviceCodeAuth"
+                                Style="{StaticResource AuthRadioButtonStyle}"
+                                Content="Device Code Login (No Browser Redirect)"/>
+
+                    <RadioButton x:Name="CertificateAuth"
                                 Style="{StaticResource AuthRadioButtonStyle}"
                                 Content="App Registration with Certificate"/>
                     
@@ -3213,6 +3217,7 @@ function Show-AuthenticationDialog {
 
     # Get controls
     $interactiveAuth = $authWindow.FindName('InteractiveAuth')
+    $deviceCodeAuth = $authWindow.FindName('DeviceCodeAuth')
     $certificateAuth = $authWindow.FindName('CertificateAuth')
     $secretAuth = $authWindow.FindName('SecretAuth')
     $certificateInputs = $authWindow.FindName('CertificateInputs')
@@ -3257,6 +3262,11 @@ function Show-AuthenticationDialog {
         })
 
     $interactiveAuth.Add_Checked({
+            $certificateInputs.Visibility = 'Collapsed'
+            $secretInputs.Visibility = 'Collapsed'
+        })
+
+    $deviceCodeAuth.Add_Checked({
             $certificateInputs.Visibility = 'Collapsed'
             $secretInputs.Visibility = 'Collapsed'
         })
@@ -3469,6 +3479,11 @@ function Show-AuthenticationDialog {
         if ($interactiveAuth.IsChecked) {
             return @{
                 Method = 'Interactive'
+            }
+        }
+        elseif ($deviceCodeAuth.IsChecked) {
+            return @{
+                Method = 'DeviceCode'
             }
         }
         elseif ($certificateAuth.IsChecked) {
@@ -3754,6 +3769,12 @@ function Connect-ToGraph {
                 $connectionResult = Connect-MgGraph -Scopes $permissionsList -NoWelcome -ErrorAction Stop
                 $script:CurrentAuthDetails = @{
                     Method = 'Interactive'
+                }
+            }
+            'DeviceCode' {
+                $connectionResult = Connect-MgGraph -Scopes $permissionsList -UseDeviceCode -NoWelcome -ErrorAction Stop
+                $script:CurrentAuthDetails = @{
+                    Method = 'DeviceCode'
                 }
             }
             'Certificate' {
