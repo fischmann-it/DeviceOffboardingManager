@@ -2072,6 +2072,53 @@ function ConvertTo-SafeDateTime {
                         </Button.Style>
                     </Button>
 
+                    <Button x:Name="SetGroupTagButton"
+                            Content="Set Group Tag"
+                            Grid.Column="2"
+                            HorizontalAlignment="Left"
+                            Height="40"
+                            MinWidth="140"
+                            Padding="20,0"
+                            Background="#7C3AED"
+                            Foreground="White"
+                            BorderThickness="0"
+                            Margin="0,0,8,0"
+                            Cursor="Hand"
+                            IsEnabled="False"
+                            ToolTip="Set or clear the Autopilot group tag on selected devices">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </Button.Resources>
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="6">
+                                                <ContentPresenter HorizontalAlignment="Center"
+                                                                VerticalAlignment="Center"
+                                                                Margin="{TemplateBinding Padding}"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="#6D28D9"/>
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Background" Value="#DDD6FE"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
                     <!-- Offboard Panel (Right, conditional) -->
                     <StackPanel x:Name="OffboardPanel"
                                 Grid.Column="3"
@@ -4623,6 +4670,7 @@ function Invoke-DeviceSearch {
         # Ensure Offboard button and Export Selected button are disabled until selection
         $OffboardButton.IsEnabled = $false
         $ExportSelectedButton.IsEnabled = $false
+        $SetGroupTagButton.IsEnabled = $false
         $OffboardPanel.Visibility = 'Collapsed'
     }
     catch {
@@ -4635,6 +4683,7 @@ function Invoke-DeviceSearch {
 $SearchButton = $Window.FindName("SearchButton")
 $OffboardButton = $Window.FindName("OffboardButton")
 $ExportSelectedButton = $Window.FindName("ExportSelectedButton")
+$SetGroupTagButton = $Window.FindName("SetGroupTagButton")
 $AuthenticateButton = $Window.FindName("AuthenticateButton")
 $SearchInputText = $Window.FindName("SearchInputText")
 $bulk_import_button = $Window.FindName('bulk_import_button')
@@ -4831,6 +4880,7 @@ $ClearSearchButton.Add_Click({
         $OffboardPanel.Visibility = 'Collapsed'
         $OffboardButton.IsEnabled = $false
         $ExportSelectedButton.IsEnabled = $false
+        $SetGroupTagButton.IsEnabled = $false
         $Window.FindName('intune_status').Text = 'Intune'
         $Window.FindName('autopilot_status').Text = 'Autopilot'
         $Window.FindName('aad_status').Text = 'Entra ID'
@@ -6288,6 +6338,136 @@ function Get-MdeAccessToken {
         Write-Log "Error acquiring MDE access token: $_" -Severity "ERROR"
         return $null
     }
+}
+
+function Set-AutopilotGroupTagForDevices {
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$Devices,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$GroupTag
+    )
+
+    $updated = 0
+    $failed = 0
+    foreach ($device in $Devices) {
+        try {
+            if (-not $device.AutopilotIdentityId -and $device.SerialNumber) {
+                # Resolve the Autopilot identity by exact serial match only; contains() is
+                # just the server-side prefilter (Autopilot does not support eq on serialNumber).
+                $serial = $device.SerialNumber.Trim()
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=contains(serialNumber,'$(ConvertTo-ODataStringValue -Value $serial)')"
+                $candidates = @(Get-GraphPagedResults -Uri $uri)
+                $exactMatches = @($candidates | Where-Object { $_.serialNumber -and $_.serialNumber.Trim() -ieq $serial })
+                if ($exactMatches.Count -eq 1) {
+                    $device.AutopilotIdentityId = $exactMatches[0].id
+                }
+                elseif ($exactMatches.Count -gt 1) {
+                    Write-Log "Multiple Autopilot devices matched serial '$serial'. Skipping group tag for $($device.DeviceName) to prevent wrong-device operations." -Severity "WARN"
+                }
+            }
+
+            if (-not $device.AutopilotIdentityId) {
+                $failed++
+                Write-Log "Cannot set Autopilot group tag for $($device.DeviceName): no Autopilot identity resolved" -Severity "WARN"
+                continue
+            }
+
+            $body = @{ groupTag = $GroupTag } | ConvertTo-Json -Depth 3
+            $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/$($device.AutopilotIdentityId)/updateDeviceProperties"
+            Invoke-GraphRequestWithRetry -Uri $uri -Method POST -Body $body -ContentType "application/json"
+            $updated++
+            Write-Log "Set Autopilot group tag for $($device.DeviceName) (AutopilotId: $($device.AutopilotIdentityId)) to '$GroupTag'" -Severity "AUDIT"
+        }
+        catch {
+            $failed++
+            Write-Log "Failed to set Autopilot group tag for $($device.DeviceName): $_" -Severity "ERROR"
+        }
+    }
+
+    return @{
+        Updated = $updated
+        Failed  = $failed
+    }
+}
+
+function Show-GroupTagDialog {
+    [xml]$groupTagDialogXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Set Autopilot Group Tag" Height="260" Width="480"
+        WindowStartupLocation="CenterScreen" Background="#F8F9FA">
+    <Border Background="White" CornerRadius="8" Margin="16" Padding="20">
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
+                <TextBlock Text="Set Autopilot Group Tag" FontSize="20" FontWeight="SemiBold" Foreground="#1A202C"/>
+                <TextBlock Text="Apply a group tag to all selected devices that have an Autopilot identity."
+                           TextWrapping="Wrap" Foreground="#4A5568" Margin="0,8,0,0"/>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <Button x:Name="CancelButton" Content="Cancel" Width="100" Height="36" Margin="0,0,8,0" IsCancel="True"/>
+                <Button x:Name="ApplyButton" Content="Apply" Width="100" Height="36" IsDefault="True" Background="#7C3AED" Foreground="White" BorderThickness="0"/>
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="Group Tag" FontWeight="SemiBold" Foreground="#2D3748" Margin="0,0,0,6"/>
+                <TextBox x:Name="GroupTagTextBox" Height="34" Padding="10,6" BorderBrush="#CBD5E0" BorderThickness="1"/>
+                <CheckBox x:Name="ClearGroupTagCheckBox" Content="Clear existing group tag" Margin="0,12,0,0"/>
+            </StackPanel>
+        </DockPanel>
+    </Border>
+</Window>
+'@
+
+    try {
+        $reader = (New-Object System.Xml.XmlNodeReader $groupTagDialogXaml)
+        $dialog = [Windows.Markup.XamlReader]::Load($reader)
+    }
+    catch {
+        Write-Log "Error creating group tag dialog: $_" -Severity "ERROR"
+        Show-Toast -Message "Failed to create group tag dialog." -Type "error"
+        return $null
+    }
+
+    $tagTextBox = $dialog.FindName('GroupTagTextBox')
+    $clearCheckBox = $dialog.FindName('ClearGroupTagCheckBox')
+    $applyButton = $dialog.FindName('ApplyButton')
+    $cancelButton = $dialog.FindName('CancelButton')
+
+    $clearCheckBox.Add_Checked({
+            $tagTextBox.IsEnabled = $false
+            $tagTextBox.Text = ""
+        })
+    $clearCheckBox.Add_Unchecked({
+            $tagTextBox.IsEnabled = $true
+            $tagTextBox.Focus()
+        })
+    $cancelButton.Add_Click({
+            $dialog.DialogResult = $false
+            $dialog.Close()
+        })
+    $applyButton.Add_Click({
+            if (-not $clearCheckBox.IsChecked -and [string]::IsNullOrWhiteSpace($tagTextBox.Text)) {
+                [System.Windows.MessageBox]::Show(
+                    "Enter a group tag or select 'Clear existing group tag'.",
+                    "Group Tag Required",
+                    [System.Windows.MessageBoxButton]::OK,
+                    [System.Windows.MessageBoxImage]::Warning
+                )
+                return
+            }
+            $dialog.DialogResult = $true
+            $dialog.Close()
+        })
+
+    if ($dialog.ShowDialog() -eq $true) {
+        return @{
+            GroupTag = if ($clearCheckBox.IsChecked) { "" } else { $tagTextBox.Text.Trim() }
+            Clear    = [bool]$clearCheckBox.IsChecked
+        }
+    }
+
+    return $null
 }
 
 function Show-DeviceGroupMembership {
@@ -8019,6 +8199,7 @@ $SelectAllCheckBox.Add_Click({
             # Update button states
             $OffboardButton.IsEnabled = $allChecked
             $ExportSelectedButton.IsEnabled = $allChecked
+            $SetGroupTagButton.IsEnabled = $allChecked
             if ($allChecked) {
                 $count = @($SearchResultsDataGrid.ItemsSource).Count
                 $SelectedDeviceCount.Text = "$count device(s) selected"
@@ -8032,6 +8213,46 @@ $SelectAllCheckBox.Add_Click({
 # Initially disable the Offboard button and Export Selected button
 $OffboardButton.IsEnabled = $false
 $ExportSelectedButton.IsEnabled = $false
+$SetGroupTagButton.IsEnabled = $false
+
+$SetGroupTagButton.Add_Click({
+        if ($AuthenticateButton.IsEnabled) {
+            Show-Toast -Message "Please connect to Microsoft Graph first." -Type "info"
+            return
+        }
+
+        $selectedDevices = @($SearchResultsDataGrid.ItemsSource | Where-Object { $_.IsSelected })
+        if (-not $selectedDevices -or $selectedDevices.Count -eq 0) {
+            Show-Toast -Message "Select at least one device first." -Type "info"
+            return
+        }
+
+        $groupTagResult = Show-GroupTagDialog
+        if (-not $groupTagResult) {
+            return
+        }
+
+        $tagText = if ($groupTagResult.Clear) { "(cleared)" } else { $groupTagResult.GroupTag }
+        Write-Log "Starting Autopilot group tag update for $($selectedDevices.Count) selected device(s): $tagText" -Severity "AUDIT"
+        $SetGroupTagButton.IsEnabled = $false
+        try {
+            $result = Set-AutopilotGroupTagForDevices -Devices $selectedDevices -GroupTag $groupTagResult.GroupTag
+            if ($result.Failed -gt 0) {
+                Show-Toast -Message "Group tag updated for $($result.Updated) device(s), failed for $($result.Failed). Check logs." -Type "warning" -DurationSeconds 7
+            }
+            else {
+                Show-Toast -Message "Group tag updated for $($result.Updated) device(s)." -Type "success"
+            }
+        }
+        catch {
+            Write-Log "Group tag update failed: $_" -Severity "ERROR"
+            Show-Toast -Message "Group tag update failed. Check logs." -Type "error" -DurationSeconds 6
+        }
+        finally {
+            $selectedDevices = @($SearchResultsDataGrid.ItemsSource | Where-Object { $_.IsSelected })
+            $SetGroupTagButton.IsEnabled = ($selectedDevices.Count -gt 0)
+        }
+    })
 
 # Add click handler for "View" groups link in DataGrid
 $SearchResultsDataGrid.Add_PreviewMouseDown({
@@ -8062,6 +8283,7 @@ $SearchResultsDataGrid.Add_SelectionChanged({
         $hasSelection = ($null -ne $selectedDevices -and $selectedDevices.Count -gt 0)
         $OffboardButton.IsEnabled = $hasSelection
         $ExportSelectedButton.IsEnabled = $hasSelection
+        $SetGroupTagButton.IsEnabled = $hasSelection
         if ($hasSelection) {
             $count = @($selectedDevices).Count
             $SelectedDeviceCount.Text = "$count device(s) selected"
@@ -8091,6 +8313,7 @@ $SearchResultsDataGrid.Add_LoadingRow({
                         $hasSelection = ($null -ne $selectedDevices -and $selectedDevices.Count -gt 0)
                         $OffboardButton.IsEnabled = $hasSelection
                         $ExportSelectedButton.IsEnabled = $hasSelection
+                        $SetGroupTagButton.IsEnabled = $hasSelection
                         if ($hasSelection) {
                             $count = @($selectedDevices).Count
                             $SelectedDeviceCount.Text = "$count device(s) selected"
