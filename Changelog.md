@@ -1,3 +1,10 @@
+## Version 0.3.1 - 7/7/2026
+
+### Bug Fixes
+- **App Crash After Group Tag Update on Windows PowerShell 5.1** (Issue #64): The toast auto-dismiss timer handler was created with `GetNewClosure()`, which binds it to a dynamic module that cannot resolve script-scope functions on Windows PowerShell 5.1. Four seconds after any toast appeared (for example after a successful group tag update), the timer tick failed with "The term 'Hide-Toast' is not recognized" and took down the main window. The Graph update itself succeeded; only the UI crashed.
+- **Autopilot Playbooks Fail with HTTP 500** (Issue #65): The Microsoft Graph `windowsAutopilotDeviceIdentities` endpoint currently returns an internal server error whenever a `$select` projection is used (verified on both beta and v1.0, regardless of the selected properties). The "Autopilot Devices Not in Intune" and "Intune Devices Not in Autopilot" playbooks now fetch the devices without `$select`, matching the dashboard behavior that was unaffected.
+- **Latent Crashes from `$script:` Variables Inside Closures**: `GetNewClosure()` handlers read `$script:` variables as frozen snapshots (or null when nested), on all PowerShell versions. This broke the stale-toast protection check, made the "Copy Key" button reset timer throw on a null timer 2 seconds after copying a recovery key, and made the Entra ID / Disable in Entra ID checkbox mutual exclusivity handlers crash the offboarding dialog. All event handlers now use plain scriptblocks (which stay bound to the script session state) and reserve `GetNewClosure()` for capturing per-invocation locals.
+
 ## Version 0.3.0 - 7/7/2026
 
 > **Note**: This is the final release of the PowerShell script. Version 0.4 will be a native Windows app (WinUI 3) that replaces the script. See [Issue #60](https://github.com/ugurkocde/DeviceOffboardingManager/issues/60).

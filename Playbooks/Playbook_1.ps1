@@ -8,7 +8,8 @@ function Get-AutopilotNotIntuneDevices {
     try {
         # Get all Autopilot devices
         Write-Host "Fetching Autopilot devices..." -ForegroundColor Cyan
-        $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime,model,manufacturer"
+        # No $select: the Autopilot endpoint returns HTTP 500 for any $select projection (Issue #65)
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities"
         $autopilotDevices = Get-GraphPagedResults -Uri $uri
         Write-Host "Found $($autopilotDevices.Count) Autopilot devices" -ForegroundColor Green
 
