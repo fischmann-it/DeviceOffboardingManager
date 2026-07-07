@@ -1,3 +1,11 @@
+## Version 0.3.2 - 7/7/2026
+
+### Enhancements
+- **WAM-Free Interactive Sign-In via MgGraphCommunity**: Graph authentication and requests now use the [MgGraphCommunity](https://github.com/ugurkocde/MgGraphCommunity) module instead of Microsoft.Graph.Authentication. Interactive login uses the classic browser authorization-code flow (PKCE) instead of the Windows Account Manager broker, which the Graph SDK made mandatory in v2.34.0 and which blocks secondary/service accounts and multi-tenant workflows. Device code, certificate, and client secret flows are unchanged in behavior. Additional benefits:
+  - The module is checked and installed automatically on first run; no manual `Install-Module` step is needed and Microsoft.Graph.Authentication is no longer required.
+  - Access tokens now refresh automatically during long sessions (proactive refresh plus reactive 401 retry), so the app no longer needs a restart after token expiry.
+  - Graph throttling responses (429) honor the service's Retry-After header inside the request layer.
+
 ## Version 0.3.1 - 7/7/2026
 
 ### Bug Fixes

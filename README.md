@@ -64,14 +64,11 @@ A modern PowerShell-based GUI tool for managing and offboarding devices from Mic
 ### Option 1: Install from PowerShell Gallery (Recommended)
 
 ```powershell
-# Install Microsoft Graph Authentication Modul
-Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
-```
-
-```powershell
 # Install from PowerShell Gallery
 Install-Script DeviceOffboardingManager
 ```
+
+> The required [MgGraphCommunity](https://github.com/ugurkocde/MgGraphCommunity) module (WAM-free Microsoft Graph authentication) is installed automatically on first run. To install it manually: `Install-Module MgGraphCommunity -Scope CurrentUser`
 
 ```powershell
 # Open a new PowerShell 7 session to run the script with
@@ -81,10 +78,7 @@ DeviceOffboardingManager
 ### Option 2: Manual Installation
 
 ```powershell
-# Install Microsoft Graph Authentication Modul
-Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
-
-# Download and run the script
+# Download and run the script (the MgGraphCommunity module is installed automatically on first run)
 .\DeviceOffboardingManager.ps1
 ```
 
@@ -138,7 +132,7 @@ Install-Script DeviceOffboardingManager -Force
 ## ⚡ Prerequisites
 
 1. PowerShell 7.0 or higher
-2. Microsoft.Graph.Authentication module
+2. MgGraphCommunity module (auto-installed on first run; provides WAM-free interactive sign-in)
 3. Required Microsoft Graph API permissions:
    - Device.ReadWrite.All
    - DeviceManagementApps.Read.All

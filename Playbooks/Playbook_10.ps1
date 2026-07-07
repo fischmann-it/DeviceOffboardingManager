@@ -34,7 +34,7 @@ function Get-FileVaultKeyReport {
             $hasKey = $false
             try {
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices('$($device.id)')/getFileVaultKey"
-                $keyResponse = Invoke-MgGraphRequest -Uri $uri -Method GET
+                $keyResponse = Invoke-MgGraphCommunityRequest -OutputType Hashtable -Uri $uri -Method GET
                 if ($keyResponse.value) {
                     $hasKey = $true
                 }
