@@ -49,10 +49,10 @@ then ship 0.3.0. Features that require a real app platform move to v0.4.
 
 ### Remaining for 0.3
 
-- [ ] **#52 / #53 Forbidden (403) errors during offboarding** — Root cause is tenant-side (missing directory role such as Cloud Device Administrator / Intune Administrator, or MAA). Surface an actionable message for 403 responses (which role/permission is likely missing) instead of raw JSON, and document required roles in the README.
-- [ ] **README refresh** — Still describes 0.2.x usage; update for 0.3 (Defender opt-in, device-code login, saved auth config, playbook bundling, required roles), and state the v0.4 WinUI plan / final-script-release status.
-- [ ] **Release prep** — Bump `.VERSION` to 0.3.0, set changelog date, tag, `Publish-Script` via the existing `publish-script.yml` workflow.
-- [ ] **Dead code / dashboard-card background jobs** — Optional polish carried over from the old plan; not release-blocking (cards now show a loading indicator).
+- [x] **#52 / #53 Forbidden (403) errors during offboarding** — `Get-Graph403Message` maps per-service 403s to the likely missing role (Cloud Device Administrator / Intune Administrator / Intune RBAC delete permission) in the offboarding summary; MAA detection unchanged. README documents required roles per operation.
+- [x] **README refresh** — Updated for 0.3: final-script-release note + v0.4 WinUI plan, device-code login, saved auth config, Defender opt-in section, Required Roles table, group tags, playbook bundling.
+- [x] **Release prep** — `.VERSION` bumped to 0.3.0, changelog dated 7/7/2026, tagged, published via `publish-script.yml`.
+- [ ] **Dead code / dashboard-card background jobs** — Optional polish carried over from the old plan; not release-blocking (cards now show a loading indicator). Skipped for 0.3.0.
 
 ### Deferred to v0.4 (WinUI app)
 

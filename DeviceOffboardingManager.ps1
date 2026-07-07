@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 0.3
+.VERSION 0.3.0
 
 .GUID a686724d-588d-472e-b927-c4840c32eed1
 
@@ -332,6 +332,29 @@ function Invoke-GraphBatchRequest {
     }
 
     return $allResponses
+}
+
+# Maps a 403 Forbidden response during offboarding to an actionable message.
+# Root cause is almost always a missing directory/Intune role rather than a
+# missing Graph permission scope (Issues #52, #53).
+function Get-Graph403Message {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('EntraID', 'Intune', 'Autopilot')]
+        [string]$Service
+    )
+
+    switch ($Service) {
+        'EntraID' {
+            "Access denied (403). Deleting Entra ID devices requires the Cloud Device Administrator or Intune Administrator directory role in addition to the Device.ReadWrite.All permission. See the 'Required Roles' section in the README."
+        }
+        'Intune' {
+            "Access denied (403). Deleting Intune devices requires the Intune Administrator role (or an Intune RBAC role with 'Managed devices - Delete') in addition to the DeviceManagementManagedDevices.ReadWrite.All permission. See the 'Required Roles' section in the README."
+        }
+        'Autopilot' {
+            "Access denied (403). Deleting Autopilot identities requires the Intune Administrator role in addition to the DeviceManagementServiceConfig.ReadWrite.All permission. See the 'Required Roles' section in the README."
+        }
+    }
 }
 
 # Helper function to safely convert date strings to DateTime objects
@@ -6058,6 +6081,9 @@ $OffboardButton.Add_Click({
                             } elseif ($entraResp.status -eq 403 -and $entraResp.body.error.code -match 'multipleAdminApproval|protectedOperation') {
                                 $deviceResult.EntraID.Error = "Requires Multi-Admin Approval"
                                 Write-Log "Entra ID operation for $deviceName requires Multi-Admin Approval" -Severity "WARN"
+                            } elseif ($entraResp.status -eq 403) {
+                                $deviceResult.EntraID.Error = Get-Graph403Message -Service 'EntraID'
+                                Write-Log "Entra ID operation for $deviceName was denied (403) - likely missing Cloud Device Administrator / Intune Administrator role" -Severity "ERROR"
                             } else {
                                 $deviceResult.EntraID.Error = "HTTP $($entraResp.status)"
                                 Write-Log "Error with Entra ID operation for $deviceName`: HTTP $($entraResp.status)" -Severity "ERROR"
@@ -6073,6 +6099,9 @@ $OffboardButton.Add_Click({
                             } elseif ($intuneResp.status -eq 403 -and $intuneResp.body.error.code -match 'multipleAdminApproval|protectedOperation') {
                                 $deviceResult.Intune.Error = "Requires Multi-Admin Approval"
                                 Write-Log "Intune operation for $deviceName requires Multi-Admin Approval" -Severity "WARN"
+                            } elseif ($intuneResp.status -eq 403) {
+                                $deviceResult.Intune.Error = Get-Graph403Message -Service 'Intune'
+                                Write-Log "Intune operation for $deviceName was denied (403) - likely missing Intune Administrator role or device-delete RBAC permission" -Severity "ERROR"
                             } else {
                                 $deviceResult.Intune.Error = "HTTP $($intuneResp.status)"
                                 Write-Log "Error removing device $deviceName from Intune: HTTP $($intuneResp.status)" -Severity "ERROR"
@@ -6088,6 +6117,9 @@ $OffboardButton.Add_Click({
                             } elseif ($autopilotResp.status -eq 403 -and $autopilotResp.body.error.code -match 'multipleAdminApproval|protectedOperation') {
                                 $deviceResult.Autopilot.Error = "Requires Multi-Admin Approval"
                                 Write-Log "Autopilot operation for $deviceName requires Multi-Admin Approval" -Severity "WARN"
+                            } elseif ($autopilotResp.status -eq 403) {
+                                $deviceResult.Autopilot.Error = Get-Graph403Message -Service 'Autopilot'
+                                Write-Log "Autopilot operation for $deviceName was denied (403) - likely missing Intune Administrator role" -Severity "ERROR"
                             } else {
                                 $deviceResult.Autopilot.Error = "HTTP $($autopilotResp.status)"
                                 Write-Log "Error removing device $deviceName from Autopilot: HTTP $($autopilotResp.status)" -Severity "ERROR"
@@ -6150,7 +6182,11 @@ $OffboardButton.Add_Click({
                                     Write-Log "Successfully removed device $($result.DeviceName) from Autopilot (fallback)" -Severity "AUDIT"
                                 }
                                 catch {
-                                    $result.Autopilot.Error = $_.Exception.Message
+                                    if ($_.Exception.Response.StatusCode -eq 'Forbidden') {
+                                        $result.Autopilot.Error = Get-Graph403Message -Service 'Autopilot'
+                                    } else {
+                                        $result.Autopilot.Error = $_.Exception.Message
+                                    }
                                     Write-Log "Error removing device $($result.DeviceName) from Autopilot (fallback): $_" -Severity "ERROR"
                                 }
                             }

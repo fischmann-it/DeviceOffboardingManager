@@ -1,6 +1,9 @@
-## Version 0.3 - Unreleased
+## Version 0.3.0 - 7/7/2026
+
+> **Note**: This is the final release of the PowerShell script. Version 0.4 will be a native Windows app (WinUI 3) that replaces the script. See [Issue #60](https://github.com/ugurkocde/DeviceOffboardingManager/issues/60).
 
 ### Bug Fixes
+- **Actionable 403 Forbidden Messages** (Issues #52, #53): When an offboarding operation is denied with 403, the summary now explains which directory/Intune role is likely missing (e.g. Cloud Device Administrator, Intune Administrator) instead of showing a raw HTTP error. Multi-Admin Approval requirements are detected and reported separately. The README documents the required roles per operation.
 - **Dashboard Card Loading Feedback**: Clicking a dashboard statistic card now shows an immediate loading indicator (wait cursor + toast) before the device list is fetched, instead of the window appearing to freeze.
 - **Recovery Key Copy No Longer Crashes the App** (Issue #38): Clipboard failures (e.g. in RDP sessions) while copying a BitLocker/FileVault key are now caught and shown on the button instead of escaping the event handler and destabilizing the offboarding dialogs.
 - **OData Filter Escaping**: Search text and device-derived values (names, serials) are now escaped before being interpolated into Graph `$filter` expressions, so device names containing apostrophes no longer break search queries.
