@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 0.3.0
+.VERSION 0.3.1
 
 .GUID a686724d-588d-472e-b927-c4840c32eed1
 
@@ -4735,10 +4735,16 @@ $CollapsedStatusDot = $Window.FindName('CollapsedStatusDot')
 $script:SidebarCollapsed = $false
 
 $script:ToastGeneration = 0
+$script:ToastHideGeneration = 0
 
+# NOTE (Issue #64): toast handlers must be plain scriptblocks. GetNewClosure() binds a
+# scriptblock to a dynamic module that cannot resolve script-scope functions on Windows
+# PowerShell 5.1 ('Hide-Toast' is not recognized) and reads $script: variables as frozen
+# snapshots instead of live values. Plain scriptblocks stay bound to the script session
+# state; GetNewClosure() is only for capturing per-invocation locals.
 function Hide-Toast {
     $script:ToastGeneration++
-    $gen = $script:ToastGeneration
+    $script:ToastHideGeneration = $script:ToastGeneration
     if ($script:ToastTimer) { $script:ToastTimer.Stop() }
     # Clear current animation hold and read actual position
     $ToastNotification.RenderTransform.BeginAnimation(
@@ -4751,7 +4757,7 @@ function Hide-Toast {
     $slideOut.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(200))
     $slideOut.EasingFunction = New-Object System.Windows.Media.Animation.QuadraticEase
     $slideOut.EasingFunction.EasingMode = 'EaseIn'
-    $slideOut.Add_Completed({ if ($script:ToastGeneration -eq $gen) { $ToastNotification.Visibility = 'Collapsed' } }.GetNewClosure())
+    $slideOut.Add_Completed({ if ($script:ToastGeneration -eq $script:ToastHideGeneration) { $ToastNotification.Visibility = 'Collapsed' } })
     $ToastNotification.RenderTransform.BeginAnimation(
         [System.Windows.Media.TranslateTransform]::YProperty, $slideOut)
 }
@@ -4786,7 +4792,7 @@ function Show-Toast {
     # Auto-dismiss timer
     $script:ToastTimer = New-Object System.Windows.Threading.DispatcherTimer
     $script:ToastTimer.Interval = [TimeSpan]::FromSeconds($DurationSeconds)
-    $script:ToastTimer.Add_Tick({ Hide-Toast }.GetNewClosure())
+    $script:ToastTimer.Add_Tick({ Hide-Toast })
     $script:ToastTimer.Start()
 }
 
@@ -5765,15 +5771,17 @@ $OffboardButton.Add_Click({
                             Write-Log "Failed to copy recovery key to clipboard: $_" -Severity "WARN"
                             $button.Content = "Copy failed"
                         }
-                        $script:copyButtonTimer = New-Object System.Windows.Threading.DispatcherTimer
-                        $script:copyButtonTimer.Interval = [TimeSpan]::FromSeconds(2)
-                        $script:copyButtonTimer.Add_Tick({
+                        # Local variable, not $script:, so GetNewClosure() captures it;
+                        # $script: variables read as null inside nested closures (Issue #64).
+                        $timer = New-Object System.Windows.Threading.DispatcherTimer
+                        $timer.Interval = [TimeSpan]::FromSeconds(2)
+                        $timer.Add_Tick({
                                 $button.Content = "Copy Key"
-                                $script:copyButtonTimer.Stop()
+                                $timer.Stop()
                             }.GetNewClosure())
-                        $script:copyButtonTimer.Start()
+                        $timer.Start()
                     }
-                }.GetNewClosure()
+                }
             
                 $encryptionKeysList = $confirmationWindow.FindName('EncryptionKeysList')
                 $encryptionKeysList.AddHandler(
@@ -5842,12 +5850,14 @@ $OffboardButton.Add_Click({
         }
 
         # Mutual exclusivity: "Entra ID" (delete) vs "Disable in Entra ID"
+        # Plain scriptblocks: GetNewClosure() would read $script:serviceCheckboxes as null
+        # here because closures only capture per-invocation locals (Issue #64).
         $script:serviceCheckboxes["Entra ID"].Add_Checked({
             $script:serviceCheckboxes["Disable in Entra ID"].IsChecked = $false
-        }.GetNewClosure())
+        })
         $script:serviceCheckboxes["Disable in Entra ID"].Add_Checked({
             $script:serviceCheckboxes["Entra ID"].IsChecked = $false
-        }.GetNewClosure())
+        })
 
         # Add button handlers
         $cancelButton.Add_Click({
