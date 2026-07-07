@@ -1,98 +1,20 @@
 # Playbook: List all devices that are in Autopilot but not in Intune
 # This script identifies devices that are registered in Windows Autopilot but not present in Intune management
 
-# Helper function to safely convert date strings to DateTime objects
-function ConvertTo-SafeDateTime {
-    param(
-        [Parameter(Mandatory = $false)]
-        [string]$dateString
-    )
-    
-    if ([string]::IsNullOrWhiteSpace($dateString)) {
-        return $null
-    }
-    
-    # Define supported date formats
-    $formats = @(
-        "yyyy-MM-ddTHH:mm:ssZ",
-        "yyyy-MM-ddTHH:mm:ss.fffffffZ",
-        "yyyy-MM-ddTHH:mm:ss",
-        "MM/dd/yyyy HH:mm:ss",
-        "dd/MM/yyyy HH:mm:ss",
-        "yyyy-MM-dd HH:mm:ss",
-        "M/d/yyyy h:mm:ss tt",
-        "M/d/yyyy H:mm:ss"
-    )
-    
-    $culture = [System.Globalization.CultureInfo]::InvariantCulture
-    
-    # Try each format
-    foreach ($format in $formats) {
-        try {
-            $parsedDate = [DateTime]::ParseExact($dateString, $format, $culture, [System.Globalization.DateTimeStyles]::None)
-            # Check for DateTime.MinValue (1/1/0001)
-            if ($parsedDate -eq [DateTime]::MinValue) {
-                return $null
-            }
-            return $parsedDate
-        }
-        catch {
-            # Continue to next format
-            continue
-        }
-    }
-    
-    # Try default parse as last resort with InvariantCulture
-    try {
-        $parsedDate = [DateTime]::Parse($dateString, $culture)
-        if ($parsedDate -eq [DateTime]::MinValue) {
-            return $null
-        }
-        return $parsedDate
-    }
-    catch {
-        Write-Warning "Failed to parse date: $dateString"
-        return $null
-    }
-}
-
-function Get-GraphPagedResults {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Uri
-    )
-    
-    $results = @()
-    $nextLink = $Uri
-    
-    do {
-        try {
-            $response = Invoke-MgGraphRequest -Uri $nextLink -Method GET
-            if ($response.value) {
-                $results += $response.value
-            }
-            $nextLink = $response.'@odata.nextLink'
-        }
-        catch {
-            Write-Error "Error in pagination: $_"
-            break
-        }
-    } while ($nextLink)
-    
-    return $results
-}
+$helpersPath = Join-Path $PSScriptRoot "PlaybookHelpers.ps1"
+. $helpersPath
 
 function Get-AutopilotNotIntuneDevices {
     try {
         # Get all Autopilot devices
         Write-Host "Fetching Autopilot devices..." -ForegroundColor Cyan
-        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities"
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=id,displayName,serialNumber,lastContactedDateTime,model,manufacturer"
         $autopilotDevices = Get-GraphPagedResults -Uri $uri
         Write-Host "Found $($autopilotDevices.Count) Autopilot devices" -ForegroundColor Green
 
         # Get all Intune devices
         Write-Host "Fetching Intune devices..." -ForegroundColor Cyan
-        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices"
+        $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=serialNumber"
         $intuneDevices = Get-GraphPagedResults -Uri $uri
         Write-Host "Found $($intuneDevices.Count) Intune devices" -ForegroundColor Green
 
@@ -113,7 +35,7 @@ function Get-AutopilotNotIntuneDevices {
                 SerialNumber = $_.serialNumber
                 OperatingSystem = "$($_.model) ($($_.manufacturer))"
                 PrimaryUser = "Not enrolled"
-                AutopilotLastContact = ConvertTo-SafeDateTime -dateString $_.lastContactDateTime
+                AutopilotLastContact = ConvertTo-SafeDateTime -dateString $_.lastContactedDateTime
             }
         }
 

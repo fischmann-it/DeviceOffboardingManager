@@ -20,6 +20,8 @@
 
 A modern PowerShell-based GUI tool for managing and offboarding devices from Microsoft Intune, Autopilot, and Entra ID (formerly Azure AD). This tool provides a streamlined interface for device lifecycle management across Microsoft services.
 
+> **Note**: Version 0.3 is the final release of the PowerShell script. Development has moved to a native Windows app (WinUI 3) that will replace the script as version 0.4 — same features, no PowerShell setup required. Follow the progress in [Issue #60](https://github.com/ugurkocde/DeviceOffboardingManager/issues/60). The script remains available on the PowerShell Gallery and critical bugs in 0.3 will still be fixed.
+
 ## Watch the full walkthrough of the tool:
 
 <div align="center">
@@ -45,8 +47,10 @@ A modern PowerShell-based GUI tool for managing and offboarding devices from Mic
     - [📊 Dashboard Analytics](#-dashboard-analytics)
     - [📚 Playbooks](#-playbooks)
   - [⚡ Prerequisites](#-prerequisites)
+  - [🔒 Required Roles and Permissions](#-required-roles-and-permissions)
   - [🔧 Usage](#-usage)
     - [🔐 Authentication](#-authentication)
+    - [🛡️ Defender for Endpoint (optional)](#️-defender-for-endpoint-optional)
     - [💻 Device Management](#-device-management-1)
     - [📊 Dashboard](#-dashboard)
     - [📚 Playbooks](#-playbooks-1)
@@ -144,16 +148,37 @@ Install-Script DeviceOffboardingManager -Force
    - Group.Read.All
    - User.Read.All
    - BitlockerKey.Read.All
+   - DeviceLocalCredential.Read.All (for LAPS passwords)
+4. Optional: MSAL.PS module (only if you enable the Defender for Endpoint integration)
+
+The built-in Prerequisites dialog (sidebar) checks all of this for you and can install missing modules.
+
+## 🔒 Required Roles and Permissions
+
+The Graph permissions above are **not sufficient on their own** when you sign in interactively — your admin account also needs directory/Intune roles, otherwise offboarding fails with `403 Forbidden`:
+
+| Operation | Required role |
+|---|---|
+| Delete device from **Entra ID** | Cloud Device Administrator (or Intune Administrator) |
+| Delete device from **Intune** | Intune Administrator, or an Intune RBAC role with *Managed devices – Delete* |
+| Delete device from **Autopilot** / set group tags | Intune Administrator |
+| Read BitLocker recovery keys | A role permitted to read BitLocker keys (e.g. Cloud Device Administrator, Intune Administrator, Helpdesk Administrator) |
+| Read LAPS passwords | Cloud Device Administrator or Intune Administrator |
+
+Since 0.3 the tool detects `403` responses and tells you which role is likely missing instead of showing raw JSON. If your tenant uses **Multi-Admin Approval (MAA)** for protected operations, deletions are reported as "Requires Multi-Admin Approval" — approve the request in Intune and re-run.
+
+For app-only authentication (certificate or client secret), the application permissions listed under Prerequisites are sufficient; directory roles do not apply.
 
 ## 🔧 Usage
 
 ### 🔐 Authentication
 
-The tool supports three authentication methods:
+The tool supports four authentication methods:
 
 1. **Interactive Login**: Best for admin users with appropriate permissions
-2. **Certificate-based**: For automated or service principal authentication
-3. **Client Secret**: Alternative service principal authentication method
+2. **Device Code Login**: Interactive login without a browser redirect — use this if the normal interactive login fails with localhost-redirect or WAM errors (common on locked-down machines and in remote sessions)
+3. **Certificate-based**: For automated or service principal authentication
+4. **Client Secret**: Alternative service principal authentication method
 
 To connect:
 
@@ -162,13 +187,26 @@ To connect:
 3. Provide required credentials
 4. Verify connection status in the tenant information section
 
+Certificate and client secret configurations can be saved and are auto-loaded on the next start (stored in `%LocalAppData%/DeviceOffboardingManager`; the client secret itself is never persisted).
+
+### 🛡️ Defender for Endpoint (optional)
+
+Offboarding devices from Microsoft Defender for Endpoint is available as an opt-in integration, disabled by default:
+
+1. Open the **Prerequisites** dialog from the sidebar
+2. Enable the **Defender for Endpoint integration** toggle (persisted in `settings.json`)
+3. Install the optional **MSAL.PS** module when prompted
+
+Once enabled, Defender appears as an additional offboarding target. It requires `WindowsDefenderATP` permissions (`Machine.ReadWrite.All`, `Machine.Offboard`) on your app registration. Both app-only (certificate / client secret) and delegated authentication are supported.
+
 ### 💻 Device Management
 
 1. **Search for Devices**:
 
-   - Select search type (Device name/Serial number)
+   - Select search type (Device name / Serial number / Device ID / Contains partial match)
    - Enter search terms (supports multiple values with comma separation)
    - Click Search to retrieve device information
+   - Filter the results grid live via the filter boxes above each column; shift-click checkboxes to select ranges
 
 2. **Bulk Import**:
 
@@ -177,11 +215,16 @@ To connect:
    - Verify imported devices in the search field
 
 3. **Device Offboarding**:
+
    - Select devices in the results grid
    - Click "Offboard device(s)"
-   - Review the confirmation dialog
-   - Note any encryption recovery keys
+   - Review the confirmation dialog (shows the exact Entra/Intune/Autopilot IDs that will be affected, plus co-management warnings)
+   - Note any encryption recovery keys and LAPS passwords
    - Confirm the operation
+
+4. **Set Autopilot Group Tags**:
+   - Select devices in the results grid
+   - Click "Set Group Tag" to assign or clear the Autopilot group tag for all selected devices
 
 ### 📊 Dashboard
 
@@ -202,8 +245,11 @@ Automated tasks for common scenarios:
 - Generate corporate device inventory
 - View personal device inventory
 - Analyze stale devices
-- OS-specific device reports
-- Encryption key reports
+- OS-specific, outdated-OS, and end-of-life-OS device reports
+- BitLocker and FileVault key reports
+- Corporate identifier stale report
+
+Playbooks are bundled inside the script, so they also work when installed via `Install-Script` from the PowerShell Gallery.
 
 ## 👥 Contributing
 

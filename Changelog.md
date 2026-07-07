@@ -1,3 +1,53 @@
+## Version 0.3.0 - 7/7/2026
+
+> **Note**: This is the final release of the PowerShell script. Version 0.4 will be a native Windows app (WinUI 3) that replaces the script. See [Issue #60](https://github.com/ugurkocde/DeviceOffboardingManager/issues/60).
+
+### Bug Fixes
+- **Actionable 403 Forbidden Messages** (Issues #52, #53): When an offboarding operation is denied with 403, the summary now explains which directory/Intune role is likely missing (e.g. Cloud Device Administrator, Intune Administrator) instead of showing a raw HTTP error. Multi-Admin Approval requirements are detected and reported separately. The README documents the required roles per operation.
+- **Dashboard Card Loading Feedback**: Clicking a dashboard statistic card now shows an immediate loading indicator (wait cursor + toast) before the device list is fetched, instead of the window appearing to freeze.
+- **Recovery Key Copy No Longer Crashes the App** (Issue #38): Clipboard failures (e.g. in RDP sessions) while copying a BitLocker/FileVault key are now caught and shown on the button instead of escaping the event handler and destabilizing the offboarding dialogs.
+- **OData Filter Escaping**: Search text and device-derived values (names, serials) are now escaped before being interpolated into Graph `$filter` expressions, so device names containing apostrophes no longer break search queries.
+- **Fixed 8 Critical Bugs** across device offboarding and playbook execution
+  - Fixed Autopilot property typo (`lastContactDateTime` -> `lastContactedDateTime`)
+  - Fixed BitLocker key retrieval array bug: access first element explicitly
+  - Fixed stale `parsedDevices` not clearing on bulk import cancel
+  - Fixed status string corruption from counter increment inside PSCustomObject
+  - Fixed permission scopes: `Device.ReadWrite.All`, added `BitlockerKey.Read.All`
+  - Fixed export functions to use actual DeviceObject class properties
+  - Fixed playbook result columns to generate dynamically from actual output schema
+- **Local Playbook Execution**: Playbooks now load from local `Playbooks/` directory instead of downloading from GitHub URLs at runtime
+- **Playbooks Work with `Install-Script`** (Issue #15): The script now bundles all playbooks internally and extracts them to `%LocalAppData%/DeviceOffboardingManager/Playbooks` when the local `Playbooks/` directory is absent (PowerShell Gallery installs only deliver the single `.ps1`). Also replaces 3-argument `Join-Path` calls that fail on Windows PowerShell 5.1.
+
+### Graph API Performance and Reliability
+- **Retry Logic with Backoff**: New `Invoke-GraphRequestWithRetry` wrapper handles 429 throttling (reads Retry-After header), 5xx transient errors (exponential backoff), and network failures
+- **Batch Requests**: New `Invoke-GraphBatchRequest` helper auto-chunks up to 20 sub-requests per `$batch` call with sub-request retry logic
+  - Search queries batch Entra+Intune (device name) and Intune+Autopilot (serial number) lookups
+  - Per-device offboarding batches Entra+Intune+Autopilot operations into a single `$batch` call
+- **Dashboard Statistics via `$count`**: Single `$batch` call with `$count` sub-requests replaces 3 full-collection fetches and client-side counting, with automatic fallback for tenants without `$count` support
+- **Bulk Autopilot Deletion**: Uses `deleteDevices` bulk endpoint when 2+ devices are selected, with individual deletion fallback
+- **Migrated All Endpoints to Beta**: All v1.0 Graph API references replaced with beta across the main script and all playbooks
+- **Added `$select` to All GET Calls**: Every GET endpoint now specifies only the properties used downstream, reducing API payload size
+
+### New Features
+- **Device Code Authentication** (Issue #59): Added a "Device Code Login (No Browser Redirect)" option to the authentication dialog to avoid browser localhost redirect / WAM issues with interactive Microsoft Graph authentication.
+- **Saved Authentication Config** (Issue #48): Save and auto-load certificate and client secret configurations to `%LocalAppData%/DeviceOffboardingManager`. Client secret is never persisted for security.
+- **Co-Management Awareness**: Displays `ManagementAgent` property on devices and shows an amber warning banner in the confirmation dialog for co-managed devices
+- **Platform Filtering on Dashboard** (Issue #40): ComboBox to filter all dashboard statistics by OS platform
+- **Grid Filtering and Shift-Click Range Selection** (Issue #33): Filter TextBoxes above the DataGrid for live column filtering, shift-click on checkboxes to toggle device ranges
+- **HTML Offboarding Report Generation**: Professional styled HTML reports with per-device service status and summary statistics, accessible via export buttons in summary and dashboard dialogs
+- **Defender for Endpoint (settings-gated)** (Issue #11): Optional Defender for Endpoint offboarding, disabled by default. Enable it from the Prerequisites dialog; only then does Defender appear as an offboarding target and request a separate Defender API token. Supports app-only token acquisition (client secret and certificate auth) plus delegated silent/interactive fallback across both Defender API resource endpoints. Requires `WindowsDefenderATP` permissions (`Machine.ReadWrite.All`, `Machine.Offboard`) and the optional MSAL.PS module.
+
+### New Playbooks
+- **Playbook 6: OS-Specific Devices** -- Filter and list managed devices by operating system
+- **Playbook 7: Outdated OS Devices** -- Identify devices running outdated OS versions
+- **Playbook 8: End-of-Life OS Devices** -- Detect devices running end-of-life OS versions
+- **Playbook 9: BitLocker Key Report** -- Retrieve BitLocker recovery key metadata for Windows devices
+- **Playbook 10: FileVault Key Report** -- Check FileVault key availability for macOS devices
+- **Playbook 11: Corporate Identifier Stale Report** (Issue #41) -- List imported corporate device identifiers with enrollment state and last contact staleness
+- **Shared Playbook Helpers**: Extracted common utility functions (`Get-GraphPagedResults`, `ConvertTo-SafeDateTime`, etc.) into `PlaybookHelpers.ps1` to reduce duplication across playbooks
+
+---
+
 ## Version 0.2.2 - 7/26/2025
 
 - **Fixed Autopilot Device Removal by Serial Number**: Enhanced offboarding process to properly retrieve and use serial numbers for Autopilot device removal (Issue #45)
