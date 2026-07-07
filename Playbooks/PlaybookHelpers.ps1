@@ -62,29 +62,31 @@ function Invoke-GraphRequestWithRetry {
     while ($true) {
         try {
             $params = @{
-                Uri    = $Uri
-                Method = $Method
+                Uri        = $Uri
+                Method     = $Method
+                OutputType = 'Hashtable'
             }
             if ($Headers.Count -gt 0) { $params.Headers = $Headers }
             if ($Body) {
                 $params.Body = $Body
                 $params.ContentType = $ContentType
             }
-            return Invoke-MgGraphRequest @params
+            return Invoke-MgGraphCommunityRequest @params
         }
         catch {
             $attempt++
+            # MgGraphCommunity surfaces Graph failures in the message text, e.g.
+            # "Graph error 403 [Authorization_RequestDenied]: ..." or "HTTP 500 from <uri>"
             $statusCode = $null
-            if ($_.Exception.Response) {
-                $statusCode = [int]$_.Exception.Response.StatusCode
+            if ($_.Exception.Message -match '(?:Graph error|HTTP)\s+(\d{3})\b') {
+                $statusCode = [int]$Matches[1]
             }
 
             if ($statusCode -eq 429) {
                 if ($attempt -gt $MaxRetries) { throw }
+                # Retry-After is honored inside Invoke-MgGraphCommunityRequest itself;
+                # this outer retry handles sustained throttling with a plain delay.
                 $retryAfter = $BaseDelaySeconds
-                if ($_.Exception.Response.Headers -and $_.Exception.Response.Headers['Retry-After']) {
-                    $retryAfter = [int]$_.Exception.Response.Headers['Retry-After']
-                }
                 Write-Warning "Throttled (429) on $Method $Uri -- retrying in ${retryAfter}s (attempt $attempt/$MaxRetries)"
                 Start-Sleep -Seconds $retryAfter
                 continue

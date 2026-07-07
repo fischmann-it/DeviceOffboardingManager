@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 0.3.1
+.VERSION 0.3.2
 
 .GUID a686724d-588d-472e-b927-c4840c32eed1
 
@@ -44,7 +44,9 @@ Param(
 $script:VerboseMode = $Verbose.IsPresent
 
 #Requires -Version 7.0
-#Requires -Modules Microsoft.Graph.Authentication
+# Graph authentication and requests use the MgGraphCommunity module (WAM-free interactive
+# sign-in). It is checked and auto-installed at startup rather than via #Requires so first
+# run needs no manual steps.
 
 # Made by Ugur with ❤️
 # Guide and documentation available at https://github.com/ugurkocde/DeviceOffboardingManager
@@ -60,6 +62,30 @@ try {
 catch {
     Write-Host "Failed to load required .NET assemblies: $_" -ForegroundColor Red
     Write-Host "Please ensure .NET Framework is properly installed." -ForegroundColor Red
+    exit 1
+}
+
+# Ensure the MgGraphCommunity module is available and loaded. It replaces
+# Microsoft.Graph.Authentication for sign-in and requests: interactive login uses the
+# classic browser flow instead of the WAM broker, which blocks secondary/service
+# accounts, and tokens refresh automatically during long sessions.
+if (-not (Get-Module -ListAvailable -Name "MgGraphCommunity")) {
+    Write-Host "The required MgGraphCommunity module is not installed. Installing from the PowerShell Gallery..." -ForegroundColor Cyan
+    try {
+        Install-Module MgGraphCommunity -Scope CurrentUser -Force -ErrorAction Stop
+        Write-Host "MgGraphCommunity module installed." -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Failed to install the MgGraphCommunity module: $_" -ForegroundColor Red
+        Write-Host "Install it manually with: Install-Module MgGraphCommunity -Scope CurrentUser" -ForegroundColor Red
+        exit 1
+    }
+}
+try {
+    Import-Module MgGraphCommunity -ErrorAction Stop
+}
+catch {
+    Write-Host "Failed to load the MgGraphCommunity module: $_" -ForegroundColor Red
     exit 1
 }
 
@@ -236,30 +262,32 @@ function Invoke-GraphRequestWithRetry {
     while ($true) {
         try {
             $params = @{
-                Uri    = $Uri
-                Method = $Method
+                Uri        = $Uri
+                Method     = $Method
+                OutputType = 'Hashtable'
             }
             if ($Headers.Count -gt 0) { $params.Headers = $Headers }
             if ($Body) {
                 $params.Body = $Body
                 $params.ContentType = $ContentType
             }
-            return Invoke-MgGraphRequest @params
+            return Invoke-MgGraphCommunityRequest @params
         }
         catch {
             $attempt++
+            # MgGraphCommunity surfaces Graph failures in the message text, e.g.
+            # "Graph error 403 [Authorization_RequestDenied]: ..." or "HTTP 500 from <uri>"
             $statusCode = $null
-            if ($_.Exception.Response) {
-                $statusCode = [int]$_.Exception.Response.StatusCode
+            if ($_.Exception.Message -match '(?:Graph error|HTTP)\s+(\d{3})\b') {
+                $statusCode = [int]$Matches[1]
             }
 
             # Throttled (429)
             if ($statusCode -eq 429) {
                 if ($attempt -gt $MaxRetries) { throw }
+                # Retry-After is honored inside Invoke-MgGraphCommunityRequest itself;
+                # this outer retry handles sustained throttling with a plain delay.
                 $retryAfter = $BaseDelaySeconds
-                if ($_.Exception.Response.Headers -and $_.Exception.Response.Headers['Retry-After']) {
-                    $retryAfter = [int]$_.Exception.Response.Headers['Retry-After']
-                }
                 Write-Log "Throttled (429) on $Method $Uri -- retrying in ${retryAfter}s (attempt $attempt/$MaxRetries)" -Severity "WARN"
                 Start-Sleep -Seconds $retryAfter
                 continue
@@ -3843,13 +3871,14 @@ function Connect-ToGraph {
         # Connect based on authentication method
         switch ($AuthDetails.Method) {
             'Interactive' {
-                $connectionResult = Connect-MgGraph -Scopes $permissionsList -NoWelcome -ErrorAction Stop
+                # Classic browser-based authorization code flow (PKCE), no WAM broker
+                $connectionResult = Connect-MgGraphCommunity -Scopes $permissionsList -NoWelcome -ErrorAction Stop
                 $script:CurrentAuthDetails = @{
                     Method = 'Interactive'
                 }
             }
             'DeviceCode' {
-                $connectionResult = Connect-MgGraph -Scopes $permissionsList -UseDeviceCode -NoWelcome -ErrorAction Stop
+                $connectionResult = Connect-MgGraphCommunity -Scopes $permissionsList -UseDeviceCode -NoWelcome -ErrorAction Stop
                 $script:CurrentAuthDetails = @{
                     Method = 'DeviceCode'
                 }
@@ -3867,9 +3896,9 @@ function Connect-ToGraph {
                 }
                 
                 # Disconnect any existing connections first
-                Disconnect-MgGraph -ErrorAction SilentlyContinue
-                
-                $connectionResult = Connect-MgGraph -ClientId $AuthDetails.AppId -TenantId $AuthDetails.TenantId -CertificateThumbprint $AuthDetails.Thumbprint -NoWelcome -ErrorAction Stop
+                Disconnect-MgGraphCommunity -ErrorAction SilentlyContinue
+
+                $connectionResult = Connect-MgGraphCommunity -ClientId $AuthDetails.AppId -TenantId $AuthDetails.TenantId -CertificateThumbprint $AuthDetails.Thumbprint -NoWelcome -ErrorAction Stop
                 $script:CurrentAuthDetails = @{
                     Method     = 'Certificate'
                     AppId      = $AuthDetails.AppId
@@ -3892,7 +3921,7 @@ function Connect-ToGraph {
                 $SecuredPasswordPassword = ConvertTo-SecureString -String $AuthDetails.Secret -AsPlainText -Force
                 $ClientSecretCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $AuthDetails.AppId, $SecuredPasswordPassword
                 
-                $connectionResult = Connect-MgGraph -TenantId $AuthDetails.TenantId -ClientSecretCredential $ClientSecretCredential -NoWelcome -ErrorAction Stop
+                $connectionResult = Connect-MgGraphCommunity -ClientId $AuthDetails.AppId -TenantId $AuthDetails.TenantId -ClientSecretCredential $ClientSecretCredential -NoWelcome -ErrorAction Stop
                 $script:CurrentAuthDetails = @{
                     Method             = 'Secret'
                     AppId              = $AuthDetails.AppId
@@ -3912,7 +3941,7 @@ function Connect-ToGraph {
         }
 
         # Check permissions
-        $context = Get-MgContext
+        $context = Get-MgGraphCommunityContext
         if (-not $context) {
             throw "Failed to get Microsoft Graph context after connection"
         }
@@ -4492,7 +4521,7 @@ function Invoke-DeviceSearch {
                 # Direct lookup by Entra device object ID
                 try {
                     $uri = "https://graph.microsoft.com/beta/devices/$SearchText"
-                    $AADDevice = Invoke-MgGraphRequest -Uri $uri -Method GET
+                    $AADDevice = Invoke-MgGraphCommunityRequest -OutputType Hashtable -Uri $uri -Method GET
                 }
                 catch {
                     Write-Log "Device ID '$SearchText' not found in Entra ID: $_"
@@ -5005,7 +5034,7 @@ $Window.Add_Loaded({
         try {
             Write-Log "Window is loading..."
     
-            $context = Get-MgContext
+            $context = Get-MgGraphCommunityContext
     
             if ($null -eq $context) {
                 Write-Log "Not connected to MS Graph"
@@ -5095,7 +5124,7 @@ $Window.Add_Loaded({
             Write-Log "Version displays updated"
 
             # If already connected on launch, navigate to Dashboard
-            if ($null -ne (Get-MgContext)) {
+            if ($null -ne (Get-MgGraphCommunityContext)) {
                 $MenuDashboard.IsChecked = $true
             }
         }
@@ -5122,7 +5151,7 @@ $Disconnect.Add_Click({
             Write-Log "Attempting to disconnect from MS Graph..."
             
             # Disconnect from Graph
-            Disconnect-MgGraph -ErrorAction Stop
+            Disconnect-MgGraphCommunity -ErrorAction Stop
             if ($script:CurrentAuthDetails -and $script:CurrentAuthDetails.SecretSecureString) {
                 $script:CurrentAuthDetails.SecretSecureString.Dispose()
             }
@@ -5181,7 +5210,7 @@ $Disconnect.Add_Click({
 $AuthenticateButton.Add_Click({
         try {
             # Check if already connected
-            $context = Get-MgContext
+            $context = Get-MgGraphCommunityContext
             if ($context) {
                 Write-Log "Already connected to MS Graph, skipping authentication dialog"
                 return
@@ -5654,7 +5683,7 @@ $OffboardButton.Add_Click({
                             if ($keyIdResponse.Count -gt 0) {
                                 $recoveryKeyId = $keyIdResponse[0].id
                                 $uri = "https://graph.microsoft.com/beta/informationProtection/bitlocker/recoveryKeys/$($recoveryKeyId)?`$select=key"
-                                $recoveryKeyData = Invoke-MgGraphRequest -Uri $uri -Method GET
+                                $recoveryKeyData = Invoke-MgGraphCommunityRequest -OutputType Hashtable -Uri $uri -Method GET
 
                                 if ($recoveryKeyData.key) {
                                     $keyInfo.KeyText = "BitLocker Recovery Key: $($recoveryKeyData.key)"
@@ -5671,7 +5700,7 @@ $OffboardButton.Add_Click({
                         }
                         catch {
                             Write-Log "Error retrieving BitLocker key: $_" -Severity "ERROR"
-                            if ($_.Exception.Response.StatusCode -eq 'Forbidden') {
+                            if ($_.Exception.Message -match '(?:Graph error|HTTP)\s+403\b') {
                                 $keyInfo.KeyText = "BitLocker key access denied. Ensure BitlockerKey.Read.All permission is granted."
                             }
                             else {
@@ -5683,7 +5712,7 @@ $OffboardButton.Add_Click({
                         # Get FileVault key using cached Intune ID
                         $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices('$($selectedDevice.IntuneDeviceId)')/getFileVaultKey"
                         try {
-                            $fileVaultKey = Invoke-MgGraphRequest -Uri $uri -Method GET
+                            $fileVaultKey = Invoke-MgGraphCommunityRequest -OutputType Hashtable -Uri $uri -Method GET
                             if ($fileVaultKey.value) {
                                 $keyInfo.KeyText = "FileVault Recovery Key: $($fileVaultKey.value)"
                                 $keyInfo.Key = $fileVaultKey.value
@@ -5718,7 +5747,7 @@ $OffboardButton.Add_Click({
                 if ($lapsDeviceId) {
                     try {
                         $uri = "https://graph.microsoft.com/beta/directory/deviceLocalCredentials/$($lapsDeviceId)?`$select=credentials"
-                        $lapsResponse = Invoke-MgGraphRequest -Uri $uri -Method GET
+                        $lapsResponse = Invoke-MgGraphCommunityRequest -OutputType Hashtable -Uri $uri -Method GET
                         if ($lapsResponse.credentials -and $lapsResponse.credentials.Count -gt 0) {
                             $latestCred = $lapsResponse.credentials | Sort-Object -Property backupDateTime -Descending | Select-Object -First 1
                             $lapsPassword = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($latestCred.passwordBase64))
@@ -5731,7 +5760,7 @@ $OffboardButton.Add_Click({
                         }
                     }
                     catch {
-                        if ($_.Exception.Response.StatusCode -eq 'NotFound' -or $_ -match '404') {
+                        if ($_.Exception.Message -match '(?:Graph error|HTTP)\s+404\b' -or $_ -match '404') {
                             $lapsKeyInfo.KeyText = "No LAPS password found for this device."
                         } else {
                             Write-Log "Error retrieving LAPS password: $_" -Severity "ERROR"
@@ -5984,9 +6013,9 @@ $OffboardButton.Add_Click({
                         $preActionUri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices/$($device.IntuneDeviceId)/$preActionName"
                         $preActionBody = if ($script:preAction -eq 2) { '{}' } else { $null }
                         if ($preActionBody) {
-                            Invoke-MgGraphRequest -Uri $preActionUri -Method POST -Body $preActionBody -ContentType "application/json"
+                            Invoke-MgGraphCommunityRequest -OutputType Hashtable -Uri $preActionUri -Method POST -Body $preActionBody -ContentType "application/json"
                         } else {
-                            Invoke-MgGraphRequest -Uri $preActionUri -Method POST
+                            Invoke-MgGraphCommunityRequest -OutputType Hashtable -Uri $preActionUri -Method POST
                         }
                         $deviceResult.PreAction.Success = $true
                         Write-Log "Successfully executed $preActionName on device $deviceName (IntuneId: $($device.IntuneDeviceId))" -Severity "AUDIT"
@@ -6192,7 +6221,7 @@ $OffboardButton.Add_Click({
                                     Write-Log "Successfully removed device $($result.DeviceName) from Autopilot (fallback)" -Severity "AUDIT"
                                 }
                                 catch {
-                                    if ($_.Exception.Response.StatusCode -eq 'Forbidden') {
+                                    if ($_.Exception.Message -match '(?:Graph error|HTTP)\s+403\b') {
                                         $result.Autopilot.Error = Get-Graph403Message -Service 'Autopilot'
                                     } else {
                                         $result.Autopilot.Error = $_.Exception.Message
@@ -6299,7 +6328,7 @@ $ExportSelectedButton.Add_Click({
 
 function Get-MdeAccessToken {
     try {
-        $context = Get-MgContext
+        $context = Get-MgGraphCommunityContext
         if (-not $context) {
             Write-Log "No Graph context available for MDE token acquisition" -Severity "WARN"
             return $null
@@ -7288,7 +7317,7 @@ function Show-PrerequisitesDialog {
         }
     )
 
-    $context = Get-MgContext
+    $context = Get-MgGraphCommunityContext
     $currentPermissions = if ($context) { $context.Scopes } else { @() }
 
     foreach ($permission in $requiredPermissions) {
@@ -7356,13 +7385,13 @@ function Show-PrerequisitesDialog {
 
     # Module name
     $moduleText = New-Object System.Windows.Controls.TextBlock
-    $moduleText.Text = "Microsoft.Graph.Authentication"
+    $moduleText.Text = "MgGraphCommunity"
     $moduleText.Style = $prereqWindow.FindResource("CheckTextStyle")
     $moduleText.FontWeight = "SemiBold"
 
     # Module description
     $descText = New-Object System.Windows.Controls.TextBlock
-    $descText.Text = "Required for Microsoft Graph API authentication and operations"
+    $descText.Text = "Required for Microsoft Graph authentication and API operations (WAM-free interactive sign-in)"
     $descText.Style = $prereqWindow.FindResource("CheckTextStyle")
     $descText.Foreground = "#666666"
     $descText.FontSize = 12
@@ -7378,7 +7407,7 @@ function Show-PrerequisitesDialog {
     $installButton.Visibility = "Collapsed"
     $installButton.Margin = New-Object System.Windows.Thickness(8, 0, 0, 0)
 
-    if (Get-Module -ListAvailable -Name "Microsoft.Graph.Authentication") {
+    if (Get-Module -ListAvailable -Name "MgGraphCommunity") {
         $moduleCheckbox.IsChecked = $true
         $moduleCheckbox.Foreground = "#28A745"
     }
@@ -7399,15 +7428,15 @@ function Show-PrerequisitesDialog {
                 $installButton.IsEnabled = $false
                 $installButton.Content = "Installing..."
 
-                Install-Module "Microsoft.Graph.Authentication" -Scope CurrentUser -Force
-            
+                Install-Module "MgGraphCommunity" -Scope CurrentUser -Force
+                Import-Module MgGraphCommunity -ErrorAction Stop
+
                 $moduleCheckbox.IsChecked = $true
                 $moduleCheckbox.Foreground = "#28A745"
                 $installButton.Visibility = "Collapsed"
 
-                # Restart required message
                 [System.Windows.MessageBox]::Show(
-                    "Module installed successfully. Please restart the application for changes to take effect.",
+                    "Module installed and loaded successfully.",
                     "Installation Complete",
                     [System.Windows.MessageBoxButton]::OK,
                     [System.Windows.MessageBoxImage]::Information
@@ -8586,29 +8615,31 @@ function Invoke-GraphRequestWithRetry {
     while ($true) {
         try {
             $params = @{
-                Uri    = $Uri
-                Method = $Method
+                Uri        = $Uri
+                Method     = $Method
+                OutputType = 'Hashtable'
             }
             if ($Headers.Count -gt 0) { $params.Headers = $Headers }
             if ($Body) {
                 $params.Body = $Body
                 $params.ContentType = $ContentType
             }
-            return Invoke-MgGraphRequest @params
+            return Invoke-MgGraphCommunityRequest @params
         }
         catch {
             $attempt++
+            # MgGraphCommunity surfaces Graph failures in the message text, e.g.
+            # "Graph error 403 [Authorization_RequestDenied]: ..." or "HTTP 500 from <uri>"
             $statusCode = $null
-            if ($_.Exception.Response) {
-                $statusCode = [int]$_.Exception.Response.StatusCode
+            if ($_.Exception.Message -match '(?:Graph error|HTTP)\s+(\d{3})\b') {
+                $statusCode = [int]$Matches[1]
             }
 
             if ($statusCode -eq 429) {
                 if ($attempt -gt $MaxRetries) { throw }
+                # Retry-After is honored inside Invoke-MgGraphCommunityRequest itself;
+                # this outer retry handles sustained throttling with a plain delay.
                 $retryAfter = $BaseDelaySeconds
-                if ($_.Exception.Response.Headers -and $_.Exception.Response.Headers['Retry-After']) {
-                    $retryAfter = [int]$_.Exception.Response.Headers['Retry-After']
-                }
                 Write-Warning "Throttled (429) on $Method $Uri -- retrying in ${retryAfter}s (attempt $attempt/$MaxRetries)"
                 Start-Sleep -Seconds $retryAfter
                 continue
@@ -9280,7 +9311,7 @@ function Get-FileVaultKeyReport {
             $hasKey = $false
             try {
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/managedDevices('$($device.id)')/getFileVaultKey"
-                $keyResponse = Invoke-MgGraphRequest -Uri $uri -Method GET
+                $keyResponse = Invoke-MgGraphCommunityRequest -OutputType Hashtable -Uri $uri -Method GET
                 if ($keyResponse.value) {
                     $hasKey = $true
                 }
